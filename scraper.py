@@ -12,7 +12,6 @@ import requests
 import os
 import json
 from dotenv import load_dotenv
-import hashlib # Import hashlib for generating unique IDs
 
 load_dotenv()  # Load environment variables from .env file
 
@@ -131,6 +130,7 @@ def send_email_notification(subject, body):
 # The original script's direct execution is removed.
 # Now, send_email_notification must be called explicitly.
 
+
 def load_existing_properties():
     """Loads existing properties from properties.json."""
     if os.path.exists(PROPERTIES_FILE) and os.path.getsize(PROPERTIES_FILE) > 0:
@@ -138,14 +138,18 @@ def load_existing_properties():
             try:
                 return json.load(f)
             except json.JSONDecodeError:
-                print(f"Warning: {PROPERTIES_FILE} is corrupted or empty. Starting with an empty list.")
+                print(
+                    f"Warning: {PROPERTIES_FILE} is corrupted or empty. Starting with an empty list."
+                )
                 return []
     return []
+
 
 def save_properties(properties_list):
     """Saves the current list of properties to properties.json."""
     with open(PROPERTIES_FILE, "w", encoding="utf-8") as f:
         json.dump(properties_list, f, indent=4, ensure_ascii=False)
+
 
 def scrape_visir_properties():
     # 1. Define the target URL and base URL
@@ -161,8 +165,8 @@ def scrape_visir_properties():
 
     # Load existing properties and create a set of their links for quick lookup
     existing_properties = load_existing_properties()
-    existing_property_links = {prop['link'] for prop in existing_properties}
-    
+    existing_property_links = {prop["link"] for prop in existing_properties}
+
     new_properties_found_this_run = []
 
     # --- Selenium Setup ---
@@ -181,8 +185,6 @@ def scrape_visir_properties():
 
     print("Waiting for initial page load...")
     time.sleep(5)
-
-    all_properties = []
 
     # --- Pagination Loop ---
     while True:
@@ -243,12 +245,16 @@ def scrape_visir_properties():
                     "bedrooms": bedrooms,
                     "link": link,
                 }
-                
+
                 # Check if this property (by link) is already in our existing list
-                if prop_data['link'] not in existing_property_links:
+                if prop_data["link"] not in existing_property_links:
                     new_properties_found_this_run.append(prop_data)
-                    existing_properties.append(prop_data) # Add to the list that will be saved
-                    existing_property_links.add(prop_data['link']) # Add link to set for future checks
+                    existing_properties.append(
+                        prop_data
+                    )  # Add to the list that will be saved
+                    existing_property_links.add(
+                        prop_data["link"]
+                    )  # Add link to set for future checks
 
         # --- Find and click the 'next' button ---
         try:
@@ -284,14 +290,16 @@ new_properties = scrape_visir_properties()
 # Print the results
 print(f"\n--- Total NEW unique properties found this run: {len(new_properties)} ---")
 
+
 # Sort new_properties by price
 def get_numeric_price(price_str):
     try:
         return int(price_str.replace(".", "").replace(" kr", ""))
     except (ValueError, TypeError):
-        return float('inf') # Place properties with non-numeric prices at the end
+        return float("inf")  # Place properties with non-numeric prices at the end
 
-new_properties.sort(key=lambda x: get_numeric_price(x['price']))
+
+new_properties.sort(key=lambda x: get_numeric_price(x["price"]))
 
 for i, prop in enumerate(new_properties):
     print(f"\nProperty #{i+1}")
