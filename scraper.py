@@ -161,12 +161,11 @@ def scrape_visir_properties():
     min_bedrooms = os.environ.get("MIN_BEDROOMS")
     max_bedrooms = os.environ.get("MAX_BEDROOMS")
     zip_codes = os.environ.get("ZIP_CODES")
-    categories = os.environ.get("CATEGORIES")
 
     # Validate environment variables
-    if not all([min_price, max_price, min_bedrooms, max_bedrooms, zip_codes, categories]):
+    if not all([min_price, max_price, min_bedrooms, max_bedrooms, zip_codes]):
         print("---------------------")
-        print("\nERROR: One or more search parameter environment variables (MIN_PRICE, MAX_PRICE, MIN_BEDROOMS, MAX_BEDROOMS, ZIP_CODES, CATEGORIES) not set.")
+        print("\nERROR: One or more search parameter environment variables (MIN_PRICE, MAX_PRICE, MIN_BEDROOMS, MAX_BEDROOMS, ZIP_CODES) not set.")
         print("Please set them before running the script.")
         print("Example: export ZIP_CODES='104,105'")
         print("---------------------")
@@ -175,7 +174,7 @@ def scrape_visir_properties():
     # Construct the start URL dynamically
     start_url = (
         f"https://fasteignir.visir.is/search/results/?stype=sale#/"
-        f"?zip={zip_codes}&price={min_price},{max_price}&bedroom={min_bedrooms},{max_bedrooms}&category={categories}&stype=sale"
+        f"?zip={zip_codes}&price={min_price},{max_price}&bedroom={min_bedrooms},{max_bedrooms}&category=2,1,4,7,17&stype=sale"
     )
 
     # Load ignored address substrings from config.json
