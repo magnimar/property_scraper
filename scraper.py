@@ -283,6 +283,16 @@ new_properties = scrape_visir_properties()
 
 # Print the results
 print(f"\n--- Total NEW unique properties found this run: {len(new_properties)} ---")
+
+# Sort new_properties by price
+def get_numeric_price(price_str):
+    try:
+        return int(price_str.replace(".", "").replace(" kr", ""))
+    except (ValueError, TypeError):
+        return float('inf') # Place properties with non-numeric prices at the end
+
+new_properties.sort(key=lambda x: get_numeric_price(x['price']))
+
 for i, prop in enumerate(new_properties):
     print(f"\nProperty #{i+1}")
     print(f"  Address: {prop['address']}")
