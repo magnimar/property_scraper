@@ -155,8 +155,26 @@ def scrape_visir_properties():
     # 1. Define the target URL and base URL
     base_url = "https://fasteignir.visir.is"
 
-    # This is the exact URL you provided in your second message
-    start_url = "https://fasteignir.visir.is/search/results/?stype=sale#/?zip=104,105&price=70000000,85000000&bedroom=2,10&category=2,1,4,7,17&stype=sale"
+    # Get search parameters from environment variables
+    min_price = os.environ.get("MIN_PRICE")
+    max_price = os.environ.get("MAX_PRICE")
+    min_bedrooms = os.environ.get("MIN_BEDROOMS")
+    max_bedrooms = os.environ.get("MAX_BEDROOMS")
+
+    # Validate environment variables
+    if not all([min_price, max_price, min_bedrooms, max_bedrooms]):
+        print("---------------------")
+        print("\nERROR: One or more search parameter environment variables (MIN_PRICE, MAX_PRICE, MIN_BEDROOMS, MAX_BEDROOMS) not set.")
+        print("Please set them before running the script.")
+        print("Example: export MIN_PRICE='70000000'")
+        print("---------------------")
+        return [] # Exit if parameters are not set
+
+    # Construct the start URL dynamically
+    start_url = (
+        f"https://fasteignir.visir.is/search/results/?stype=sale#/"
+        f"?zip=104,105&price={min_price},{max_price}&bedroom={min_bedrooms},{max_bedrooms}&category=2,1,4,7,17&stype=sale"
+    )
 
     # Load ignored address substrings from config.json
     with open("config.json", "r", encoding="utf-8") as f:
@@ -226,7 +244,8 @@ def scrape_visir_properties():
 
             try:
                 price_num = int(price_str.replace(".", "").replace(" kr", ""))
-                if not 70000000 <= price_num <= 85000000:
+                # Use environment variables for price filtering
+                if not int(min_price) <= price_num <= int(max_price):
                     continue
             except (ValueError, TypeError):
                 # Could not convert to number, skip it
