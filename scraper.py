@@ -17,31 +17,10 @@ def scrape_visir_properties():
     # This is the exact URL you provided in your second message
     start_url = "https://fasteignir.visir.is/search/results/?stype=sale#/?zip=104,105&price=70000000,85000000&bedroom=2,10&category=2,1,4,7,17&stype=sale"
 
-    skip_address_substrings = [
-        "hlíð",
-        "borgartún",
-        "þverholt",
-        "heklureitur",
-        "dugguvogur",
-        "kleppsmýrarvegur",
-        "skipholt",
-        "kuggavogur",
-        "brautarholt",
-        "laugavegur",
-        "súðarvogur",
-        "stefnisvogur",
-        "bollagata",
-        "arkarvogur",
-        "bolholt",
-        "skarphéðinsgata",
-        "snekkjuvogur",
-        "drómundarvogur",
-        "gunnarsbraut",
-        "kleppsvegur",
-        "hlunnavogur",
-        "gnoðarvogur",
-        "vífilsgata",
-    ]
+    # Load ignored address substrings from config.json
+    with open('config.json', 'r', encoding='utf-8') as f:
+        config = json.load(f)
+    skip_address_substrings = config.get("ignored_strings", [])
 
     # --- Selenium Setup ---
     print("Setting up Chrome driver...")
