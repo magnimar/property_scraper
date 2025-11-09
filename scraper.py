@@ -25,6 +25,8 @@ FROM_EMAIL = os.environ.get("FROM_EMAIL")
 TO_EMAIL = os.environ.get("TO_EMAIL")
 # -----------------------------------------------------------------
 
+# Define the file to store all properties
+PROPERTIES_FILE = "properties.json"
 
 # 2. Check if the key was actually found in the environment.
 if not API_KEY:
@@ -129,6 +131,26 @@ def send_email_notification(subject, body):
 # Now, send_email_notification must be called explicitly.
 
 
+def load_existing_properties():
+    """Loads existing properties from properties.json."""
+    if os.path.exists(PROPERTIES_FILE) and os.path.getsize(PROPERTIES_FILE) > 0:
+        with open(PROPERTIES_FILE, "r", encoding="utf-8") as f:
+            try:
+                return json.load(f)
+            except json.JSONDecodeError:
+                print(
+                    f"Warning: {PROPERTIES_FILE} is corrupted or empty. Starting with an empty list."
+                )
+                return []
+    return []
+
+
+def save_properties(properties_list):
+    """Saves the current list of properties to properties.json."""
+    with open(PROPERTIES_FILE, "w", encoding="utf-8") as f:
+        json.dump(properties_list, f, indent=4, ensure_ascii=False)
+
+
 def scrape_visir_properties():
     # 1. Define the target URL and base URL
     base_url = "https://fasteignir.visir.is"
@@ -140,6 +162,12 @@ def scrape_visir_properties():
     with open("config.json", "r", encoding="utf-8") as f:
         config = json.load(f)
     skip_address_substrings = config.get("ignored_strings", [])
+
+    # Load existing properties and create a set of their links for quick lookup
+    existing_properties = load_existing_properties()
+    existing_property_links = {prop["link"] for prop in existing_properties}
+
+    new_properties_found_this_run = []
 
     # --- Selenium Setup ---
     print("Setting up Chrome driver...")
@@ -157,8 +185,6 @@ def scrape_visir_properties():
 
     print("Waiting for initial page load...")
     time.sleep(5)
-
-    all_properties = []
 
     # --- Pagination Loop ---
     while True:
@@ -211,16 +237,24 @@ def scrape_visir_properties():
             bedrooms = bedrooms_tag.get_text(strip=True) if bedrooms_tag else "N/A"
 
             if link != "N/A" and address != "N/A":
-                all_properties.append(
-                    {
-                        "address": address,
-                        "price": price_str,
-                        "size_m2": size,
-                        "total_rooms": total_rooms,
-                        "bedrooms": bedrooms,
-                        "link": link,
-                    }
-                )
+                prop_data = {
+                    "address": address,
+                    "price": price_str,
+                    "size_m2": size,
+                    "total_rooms": total_rooms,
+                    "bedrooms": bedrooms,
+                    "link": link,
+                }
+
+                # Check if this property (by link) is already in our existing list
+                if prop_data["link"] not in existing_property_links:
+                    new_properties_found_this_run.append(prop_data)
+                    existing_properties.append(
+                        prop_data
+                    )  # Add to the list that will be saved
+                    existing_property_links.add(
+                        prop_data["link"]
+                    )  # Add link to set for future checks
 
         # --- Find and click the 'next' button ---
         try:
@@ -244,18 +278,30 @@ def scrape_visir_properties():
     # --- Cleanup ---
     driver.quit()
 
-    # Remove duplicates that might be loaded across pages
-    unique_properties = [dict(t) for t in {tuple(d.items()) for d in all_properties}]
+    # Save the updated list of all properties (including new ones)
+    save_properties(existing_properties)
 
-    return unique_properties
+    return new_properties_found_this_run
 
 
 # --- Run the scraper ---
-properties_list = scrape_visir_properties()
+new_properties = scrape_visir_properties()
 
 # Print the results
-print(f"\n--- Total unique properties found: {len(properties_list)} ---")
-for i, prop in enumerate(properties_list):
+print(f"\n--- Total NEW unique properties found this run: {len(new_properties)} ---")
+
+
+# Sort new_properties by price
+def get_numeric_price(price_str):
+    try:
+        return int(price_str.replace(".", "").replace(" kr", ""))
+    except (ValueError, TypeError):
+        return float("inf")  # Place properties with non-numeric prices at the end
+
+
+new_properties.sort(key=lambda x: get_numeric_price(x["price"]))
+
+for i, prop in enumerate(new_properties):
     print(f"\nProperty #{i+1}")
     print(f"  Address: {prop['address']}")
     print(f"  Price: {prop['price']}")
@@ -263,11 +309,11 @@ for i, prop in enumerate(properties_list):
     print(f"  Bedrooms: {prop['bedrooms']}")
     print(f"  Link: {prop['link']}")
 
-# --- Send email notification if properties are found ---
-if properties_list:
-    subject = f"New Properties Found: {len(properties_list)} listings"
+# --- Send email notification if new properties are found ---
+if new_properties:
+    subject = f"New Properties Found: {len(new_properties)} listings"
     body_lines = ["New properties matching your criteria have been found:"]
-    for prop in properties_list:
+    for prop in new_properties:
         body_lines.append(f"\nAddress: {prop['address']}")
         body_lines.append(f"Price: {prop['price']}")
         body_lines.append(f"Size: {prop['size_m2']}")
