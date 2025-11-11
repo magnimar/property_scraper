@@ -7,15 +7,14 @@ pip install -r requirements.txt
 python scraper.py
 ```
 
-## Configuration
+# Magni
 
-```json
-{
-    "ignored_strings": [
-        "substring1",
-        "substring2",
-        "another substring to ignore"
-    ]
-}
+```bash
+python scraper.py --user magni
 ```
 
+# Gabríela
+
+```bash
+python scraper.py --user gabriela
+```
