@@ -16,6 +16,7 @@ import json
 # --- Configuration ---
 CONFIG_FILE = "config.json"
 
+
 def load_config():
     """Loads the entire configuration from config.json."""
     if not os.path.exists(CONFIG_FILE):
@@ -28,14 +29,20 @@ def load_config():
             print(f"ERROR: Could not decode JSON from '{CONFIG_FILE}'.")
             exit()
 
+
 def save_config(config):
     """Saves the entire configuration to config.json."""
     with open(CONFIG_FILE, "w", encoding="utf-8") as f:
         json.dump(config, f, indent=2, ensure_ascii=False)
 
+
 # --- User-specific Setup ---
 parser = argparse.ArgumentParser(description="Scrape real estate listings.")
-parser.add_argument("--user", required=True, help="The user running the script (e.g., 'magni', 'gabriela').")
+parser.add_argument(
+    "--user",
+    required=True,
+    help="The user running the script (e.g., 'magni', 'gabriela').",
+)
 args = parser.parse_args()
 
 config = load_config()
@@ -57,14 +64,15 @@ MAX_BEDROOMS = user_config.get("MAX_BEDROOMS")
 ZIP_CODES = user_config.get("ZIP_CODES")
 
 
-
 # 3. Define the API endpoint
 API_URL = "https://api.sendgrid.com/v3/mail/send"
 
 
 def send_email_notification(subject, body):
     if not all([API_KEY, FROM_EMAIL, TO_EMAIL]):
-        print("Email sending skipped due to missing API_KEY, FROM_EMAIL, or TO_EMAIL in config.")
+        print(
+            "Email sending skipped due to missing API_KEY, FROM_EMAIL, or TO_EMAIL in config."
+        )
         return False
 
     headers = {"Authorization": f"Bearer {API_KEY}", "Content-Type": "application/json"}
@@ -122,7 +130,9 @@ def scrape_visir_properties():
 
     while True:
         soup = BeautifulSoup(driver.page_source, "html.parser")
-        property_cards = soup.find_all("div", class_=lambda c: c and "estate__item" in c)
+        property_cards = soup.find_all(
+            "div", class_=lambda c: c and "estate__item" in c
+        )
         print(f"Found {len(property_cards)} properties on the current page.")
 
         for card in property_cards:
@@ -134,9 +144,16 @@ def scrape_visir_properties():
             bedrooms_tag = card.find("div", class_="estate__parameters--4")
 
             link = urljoin(base_url, link_tag["href"]) if link_tag else "N/A"
-            address = address_tag.get_text(strip=True, separator=" ") if address_tag else "N/A"
+            address = (
+                address_tag.get_text(strip=True, separator=" ")
+                if address_tag
+                else "N/A"
+            )
 
-            if any(substring.lower() in address.lower() for substring in skip_address_substrings):
+            if any(
+                substring.lower() in address.lower()
+                for substring in skip_address_substrings
+            ):
                 continue
 
             price_str = price_tag.get_text(strip=True) if price_tag else "N/A"
@@ -156,8 +173,12 @@ def scrape_visir_properties():
 
             if link != "N/A" and address != "N/A":
                 prop_data = {
-                    "address": address, "price": price_str, "size_m2": size,
-                    "total_rooms": total_rooms, "bedrooms": bedrooms, "link": link,
+                    "address": address,
+                    "price": price_str,
+                    "size_m2": size,
+                    "total_rooms": total_rooms,
+                    "bedrooms": bedrooms,
+                    "link": link,
                 }
                 if prop_data["link"] not in existing_property_links:
                     new_properties_found_this_run.append(prop_data)
@@ -165,7 +186,9 @@ def scrape_visir_properties():
                     existing_property_links.add(prop_data["link"])
         try:
             next_button = WebDriverWait(driver, 5).until(
-                EC.presence_of_element_located((By.CSS_SELECTOR, "a.b-navigation-direction-next:not(.disabled)"))
+                EC.presence_of_element_located(
+                    (By.CSS_SELECTOR, "a.b-navigation-direction-next:not(.disabled)")
+                )
             )
             driver.execute_script("arguments[0].click();", next_button)
             time.sleep(5)
@@ -179,7 +202,6 @@ def scrape_visir_properties():
     save_config(config)
 
     return new_properties_found_this_run
-
 
 
 # --- Run the scraper ---
