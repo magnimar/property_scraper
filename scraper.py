@@ -1,3 +1,4 @@
+import argparse
 import time
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin
@@ -11,191 +12,127 @@ from webdriver_manager.chrome import ChromeDriverManager
 import requests
 import os
 import json
-from dotenv import load_dotenv
 
-load_dotenv()  # Load environment variables from .env file
+# --- Configuration ---
+CONFIG_FILE = "config.json"
 
-# --- THIS IS THE CORRECT, SECURE METHOD ---
-#
-# 1. Get the API Key securely from an environment variable.
-#    This line will read the key you set in your terminal.
-# -----------------------------------------------------------------
-API_KEY = os.environ.get("SENDGRID_API_KEY")
-FROM_EMAIL = os.environ.get("FROM_EMAIL")
-TO_EMAIL = os.environ.get("TO_EMAIL")
-# -----------------------------------------------------------------
 
-# Define the file to store all properties
-PROPERTIES_FILE = "properties.json"
+def load_config():
+    """Loads the entire configuration from config.json."""
+    if not os.path.exists(CONFIG_FILE):
+        print(f"ERROR: Configuration file '{CONFIG_FILE}' not found.")
+        exit()
+    with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+        try:
+            return json.load(f)
+        except json.JSONDecodeError:
+            print(f"ERROR: Could not decode JSON from '{CONFIG_FILE}'.")
+            exit()
 
-# 2. Check if the key was actually found in the environment.
-if not API_KEY:
-    print("---------------------")
-    print("\nERROR: SENDGRID_API_KEY environment variable not set.")
-    print("You must set the variable *before* running the script.")
-    print("\nIn your terminal, run this command (using your NEW key):")
-    print("export SENDGRID_API_KEY='SG.Your_Now_Key_Goes_Here'")
-    print("---------------------")
-    # exit() # Do not exit here, let the calling script handle it
 
-if not FROM_EMAIL:
-    print("---------------------")
-    print("\nERROR: FROM_EMAIL environment variable not set.")
-    print("You must set the variable *before* running the script.")
-    print("\nIn your terminal, run this command:")
-    print("export FROM_EMAIL='your_from_email@example.com'")
-    print("---------------------")
-    # exit() # Do not exit here, let the calling script handle it
+def save_config(config):
+    """Saves the entire configuration to config.json."""
+    with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+        json.dump(config, f, indent=2, ensure_ascii=False)
 
-if not TO_EMAIL:
-    print("---------------------")
-    print("\nERROR: TO_EMAIL environment variable not set.")
-    print("You must set the variable *before* running the script.")
-    print("\nIn your terminal, run this command:")
-    print("export TO_EMAIL='your_to_email@example.com'")
-    print("---------------------")
-    # exit() # Do not exit here, let the calling script handle it
+
+# --- User-specific Setup ---
+parser = argparse.ArgumentParser(description="Scrape real estate listings.")
+parser.add_argument(
+    "--user",
+    required=True,
+    help="The user running the script (e.g., 'magni', 'gabriela').",
+)
+args = parser.parse_args()
+
+config = load_config()
+
+if args.user not in config:
+    print(f"ERROR: User '{args.user}' not found in '{CONFIG_FILE}'.")
+    exit()
+
+user_config = config[args.user]
+
+# --- Email and Search Parameters ---
+API_KEY = user_config.get("SENDGRID_API_KEY")
+FROM_EMAIL = user_config.get("FROM_EMAIL")
+TO_EMAIL = user_config.get("TO_EMAIL")
+MIN_PRICE = user_config.get("MIN_PRICE")
+MAX_PRICE = user_config.get("MAX_PRICE")
+MIN_BEDROOMS = user_config.get("MIN_BEDROOMS")
+MAX_BEDROOMS = user_config.get("MAX_BEDROOMS")
+ZIP_CODES = user_config.get("ZIP_CODES")
+
 
 # 3. Define the API endpoint
 API_URL = "https://api.sendgrid.com/v3/mail/send"
 
 
 def send_email_notification(subject, body):
-    if not API_KEY or not FROM_EMAIL or not TO_EMAIL:
-        print("Email sending skipped due to missing environment variables.")
+    if not all([API_KEY, FROM_EMAIL, TO_EMAIL]):
+        print(
+            "Email sending skipped due to missing API_KEY, FROM_EMAIL, or TO_EMAIL in config."
+        )
         return False
 
-    # 4. Set up the authorization headers
     headers = {"Authorization": f"Bearer {API_KEY}", "Content-Type": "application/json"}
-
-    # 5. Define the email data (payload)
     data = {
         "personalizations": [{"to": [{"email": TO_EMAIL}], "subject": subject}],
         "from": {"email": FROM_EMAIL},
         "content": [{"type": "text/plain", "value": body}],
     }
 
-    print(
-        f"Attempting to send email to {data['personalizations'][0]['to'][0]['email']}..."
-    )
-    print(f"From: {data['from']['email']}")
-    print(f"Subject: {data['personalizations'][0]['subject']}")
-    print("---")
-
+    print(f"Attempting to send email to {TO_EMAIL}...")
     try:
-        # 6. Make the POST request
         response = requests.post(API_URL, headers=headers, data=json.dumps(data))
-
-        # 7. Print the response information
-        print("Request finished.")
         print(f"HTTP Status Code: {response.status_code}")
-        print("--- Response Body ---")
-
-        if response.text:
-            try:
-                print(json.dumps(response.json(), indent=2))
-            except requests.exceptions.JSONDecodeError:
-                print(response.text)
-        else:
-            print("[No response body]")
-
-        print("---------------------")
-
-        # 8. Explain the status code
         if response.status_code == 202:
-            print("\nSUCCESS: Status code is 202 (Accepted).")
-            print("This means SendGrid accepted your request with your NEW key.")
-            print("Please wait 1-2 minutes and check your inbox AND spam folder.")
+            print("SUCCESS: Email sent.")
             return True
-        elif response.status_code == 401:
-            print("\nERROR: Status code is 401 (Unauthorized).")
-            print("This means your NEW API Key is incorrect or you didn't set the")
-            print("environment variable correctly.")
-        elif response.status_code == 403:
-            print("\nERROR: Status code is 403 (Forbidden).")
-            print(
-                "This can mean your new API key doesn't have 'Mail Send' permissions,"
-            )
-            print("or your 'from' address is not verified (but you already did this).")
         else:
-            print(f"\nINFO: Received status code {response.status_code}.")
-            print("See the response body above for more details.")
-        return False
-
+            print(f"ERROR: Failed to send email. Response: {response.text}")
+            return False
     except requests.exceptions.RequestException as e:
-        print(f"An error occurred while making the request: {e}")
+        print(f"An error occurred while sending email: {e}")
         return False
-
-
-# The original script's direct execution is removed.
-# Now, send_email_notification must be called explicitly.
-
-
-def load_existing_properties():
-    """Loads existing properties from properties.json."""
-    if os.path.exists(PROPERTIES_FILE) and os.path.getsize(PROPERTIES_FILE) > 0:
-        with open(PROPERTIES_FILE, "r", encoding="utf-8") as f:
-            try:
-                return json.load(f)
-            except json.JSONDecodeError:
-                print(
-                    f"Warning: {PROPERTIES_FILE} is corrupted or empty. Starting with an empty list."
-                )
-                return []
-    return []
-
-
-def save_properties(properties_list):
-    """Saves the current list of properties to properties.json."""
-    with open(PROPERTIES_FILE, "w", encoding="utf-8") as f:
-        json.dump(properties_list, f, indent=4, ensure_ascii=False)
 
 
 def scrape_visir_properties():
-    # 1. Define the target URL and base URL
     base_url = "https://fasteignir.visir.is"
 
-    # This is the exact URL you provided in your second message
-    start_url = "https://fasteignir.visir.is/search/results/?stype=sale#/?zip=104,105&price=70000000,85000000&bedroom=2,10&category=2,1,4,7,17&stype=sale"
+    if not all([MIN_PRICE, MAX_PRICE, MIN_BEDROOMS, MAX_BEDROOMS, ZIP_CODES]):
+        print("ERROR: Missing search parameters in config file.")
+        return []
 
-    # Load ignored address substrings from config.json
-    with open("config.json", "r", encoding="utf-8") as f:
-        config = json.load(f)
-    skip_address_substrings = config.get("ignored_strings", [])
+    zip_codes_str = ZIP_CODES
+    start_url = (
+        f"https://fasteignir.visir.is/search/results/?stype=sale#/"
+        f"?zip={zip_codes_str}&price={MIN_PRICE},{MAX_PRICE}&bedroom={MIN_BEDROOMS},{MAX_BEDROOMS}&category=2,1,4,7,17&stype=sale"
+    )
 
-    # Load existing properties and create a set of their links for quick lookup
-    existing_properties = load_existing_properties()
+    existing_properties = user_config.get("properties", [])
+    skip_address_substrings = user_config.get("ignored_strings", [])
     existing_property_links = {prop["link"] for prop in existing_properties}
 
     new_properties_found_this_run = []
 
-    # --- Selenium Setup ---
     print("Setting up Chrome driver...")
     service = Service(ChromeDriverManager().install())
-
     options = webdriver.ChromeOptions()
     options.add_argument("--headless")
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
-
     driver = webdriver.Chrome(service=service, options=options)
 
     print(f"Opening browser and navigating to {start_url}...")
     driver.get(start_url)
-
-    print("Waiting for initial page load...")
     time.sleep(5)
 
-    # --- Pagination Loop ---
     while True:
-        # --- BeautifulSoup Parsing ---
         soup = BeautifulSoup(driver.page_source, "html.parser")
-
-        # --- Data Extraction ---
         property_cards = soup.find_all(
             "div", class_=lambda c: c and "estate__item" in c
         )
-
         print(f"Found {len(property_cards)} properties on the current page.")
 
         for card in property_cards:
@@ -220,16 +157,14 @@ def scrape_visir_properties():
                 continue
 
             price_str = price_tag.get_text(strip=True) if price_tag else "N/A"
-
             if price_str == "Tilboð":
                 continue
 
             try:
                 price_num = int(price_str.replace(".", "").replace(" kr", ""))
-                if not 70000000 <= price_num <= 85000000:
+                if not int(MIN_PRICE) <= price_num <= int(MAX_PRICE):
                     continue
             except (ValueError, TypeError):
-                # Could not convert to number, skip it
                 continue
 
             size = size_tag.get_text(strip=True) if size_tag else "N/A"
@@ -245,41 +180,26 @@ def scrape_visir_properties():
                     "bedrooms": bedrooms,
                     "link": link,
                 }
-
-                # Check if this property (by link) is already in our existing list
                 if prop_data["link"] not in existing_property_links:
                     new_properties_found_this_run.append(prop_data)
-                    existing_properties.append(
-                        prop_data
-                    )  # Add to the list that will be saved
-                    existing_property_links.add(
-                        prop_data["link"]
-                    )  # Add link to set for future checks
-
-        # --- Find and click the 'next' button ---
+                    existing_properties.append(prop_data)
+                    existing_property_links.add(prop_data["link"])
         try:
-            # Find the 'next' button. It's an 'a' tag with class 'b-navigation-direction-next'
-            # that does NOT have a 'disabled' class.
             next_button = WebDriverWait(driver, 5).until(
                 EC.presence_of_element_located(
                     (By.CSS_SELECTOR, "a.b-navigation-direction-next:not(.disabled)")
                 )
             )
-            print("Found 'next' page button. Clicking it...")
             driver.execute_script("arguments[0].click();", next_button)
-            # Wait for the page to reload with new properties
             time.sleep(5)
         except Exception:
-            print(
-                "No more 'next' page button found, or it is disabled. Ending pagination."
-            )
-            break  # Exit the loop if no 'next' button is found
+            break
 
-    # --- Cleanup ---
     driver.quit()
 
-    # Save the updated list of all properties (including new ones)
-    save_properties(existing_properties)
+    # Update the config object and save it
+    user_config["properties"] = existing_properties
+    save_config(config)
 
     return new_properties_found_this_run
 
