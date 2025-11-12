@@ -7,7 +7,7 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.chrome.service import Service
-from webdriver_manager.chrome import ChromeDriverManager
+# from webdriver_manager.chrome import ChromeDriverManager
 
 import requests
 import os
@@ -117,7 +117,8 @@ def scrape_visir_properties():
     new_properties_found_this_run = []
 
     print("Setting up Chrome driver...")
-    service = Service(ChromeDriverManager().install())
+    # service = Service(ChromeDriverManager().install())
+    service = Service(executable_path='/usr/bin/chromedriver')
     options = webdriver.ChromeOptions()
     options.add_argument("--headless")
     options.add_argument("--no-sandbox")
