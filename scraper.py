@@ -67,7 +67,7 @@ ZIP_CODES = user_config.get("ZIP_CODES")
 API_URL = "https://api.sendgrid.com/v3/mail/send"
 
 
-def send_email_notification(subject, body):
+def send_email_notification(subject, html_body):
     if not all([API_KEY, FROM_EMAIL, TO_EMAIL]):
         print(
             "Email sending skipped due to missing API_KEY, FROM_EMAIL, or TO_EMAIL in config."
@@ -78,7 +78,7 @@ def send_email_notification(subject, body):
     data = {
         "personalizations": [{"to": [{"email": TO_EMAIL}], "subject": subject}],
         "from": {"email": FROM_EMAIL},
-        "content": [{"type": "text/plain", "value": body}],
+        "content": [{"type": "text/html", "value": html_body}],
     }
 
     print(f"Attempting to send email to {TO_EMAIL}...")
@@ -118,17 +118,20 @@ def scrape_visir_properties():
     driver = None
 
     print("Setting up Chrome driver...")
-    service = Service(executable_path="/usr/bin/chromedriver")
     options = webdriver.ChromeOptions()
     options.add_argument("--headless")
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--disable-gpu")
-    options.binary_location = "/usr/bin/chromium"
+    
+    if os.path.exists("/usr/bin/chromedriver"):
+        service = Service(executable_path="/usr/bin/chromedriver")
+        options.binary_location = "/usr/bin/chromium"
+    else:
+        service = Service()
     
     while True:
         try:
-
             driver = webdriver.Chrome(service=service, options=options)
 
             print("Successfully started chrome")
@@ -157,6 +160,13 @@ def scrape_visir_properties():
             size_tag = card.find("div", class_="estate__parameters--1")
             rooms_tag = card.find("div", class_="estate__parameters--2")
             bedrooms_tag = card.find("div", class_="estate__parameters--4")
+            
+            image_tag = card.find("img")
+            image_url = None
+            if image_tag and image_tag.get("src"):
+                image_url = urljoin(base_url, image_tag["src"])
+            elif image_tag and image_tag.get("data-src"):
+                image_url = urljoin(base_url, image_tag["data-src"])
 
             link = urljoin(base_url, link_tag["href"]) if link_tag else "N/A"
             address = (
@@ -186,14 +196,25 @@ def scrape_visir_properties():
             total_rooms = rooms_tag.get_text(strip=True) if rooms_tag else "N/A"
             bedrooms = bedrooms_tag.get_text(strip=True) if bedrooms_tag else "N/A"
 
+            price_per_m2 = None
+            if size != "N/A" and price_num:
+                try:
+                    size_num = float(size.replace("m²", "").replace(",", "."))
+                    if size_num > 0:
+                        price_per_m2 = int(price_num / size_num)
+                except (ValueError, TypeError):
+                    pass
+
             if link != "N/A" and address != "N/A":
                 prop_data = {
                     "address": address,
                     "price": price_str,
                     "size_m2": size,
+                    "price_per_m2": price_per_m2,
                     "total_rooms": total_rooms,
                     "bedrooms": bedrooms,
                     "link": link,
+                    "image_url": image_url,
                 }
                 if prop_data["link"] not in existing_property_links:
                     new_properties_found_this_run.append(prop_data)
@@ -214,11 +235,11 @@ def scrape_visir_properties():
     user_config["properties"] = existing_properties
     save_config(config)
 
-    return new_properties_found_this_run
+    return new_properties_found_this_run, driver
 
 
 # --- Run the scraper ---
-new_properties = scrape_visir_properties()
+new_properties, driver = scrape_visir_properties()
 
 # Print the results
 print(f"\n--- Total NEW unique properties found this run: {len(new_properties)} ---")
@@ -234,27 +255,61 @@ def get_numeric_price(price_str):
 
 new_properties.sort(key=lambda x: get_numeric_price(x["price"]))
 
+print("\nChecking for balcony and terrace information...")
+for prop in new_properties:
+    try:
+        driver.get(prop["link"])
+        time.sleep(2)
+        page_text = driver.page_source.lower()
+        prop["has_balcony"] = "svalir" in page_text
+        prop["has_terrace"] = "sérafnota" in page_text or "garð" in page_text
+    except Exception as e:
+        print(f"Error checking features for {prop['address']}: {e}")
+        prop["has_balcony"] = False
+        prop["has_terrace"] = False
+
+if driver:
+    driver.quit()
+
 for i, prop in enumerate(new_properties):
     print(f"\nProperty #{i+1}")
     print(f"  Address: {prop['address']}")
     print(f"  Price: {prop['price']}")
     print(f"  Size: {prop['size_m2']}")
+    if prop.get('price_per_m2'):
+        price_per_m2_formatted = f"{prop['price_per_m2']:,}".replace(",", ".")
+        print(f"  Price per m²: {price_per_m2_formatted} kr.")
     print(f"  Bedrooms: {prop['bedrooms']}")
+    if prop.get('has_balcony') is not None:
+        print(f"  Balcony: {'yes' if prop['has_balcony'] else 'no'}")
+    if prop.get('has_terrace') is not None:
+        print(f"  Terrace: {'yes' if prop['has_terrace'] else 'no'}")
     print(f"  Link: {prop['link']}")
 
 # --- Send email notification if new properties are found ---
 if new_properties:
     subject = f"New Properties Found: {len(new_properties)} listings"
-    body_lines = ["New properties matching your criteria have been found:"]
+    html_body = "<html><body><h2>New properties matching your criteria have been found:</h2>"
     for prop in new_properties:
-        body_lines.append(f"\nAddress: {prop['address']}")
-        body_lines.append(f"Price: {prop['price']}")
-        body_lines.append(f"Size: {prop['size_m2']}")
-        body_lines.append(f"Bedrooms: {prop['bedrooms']}")
-        body_lines.append(f"Link: {prop['link']}")
-    body = "\n".join(body_lines)
+        html_body += f"<div style='margin-bottom: 30px; padding: 15px; border: 1px solid #ddd;'>"
+        html_body += f"<h3>{prop['address']}</h3>"
+        html_body += f"<p><strong>Price:</strong> {prop['price']}</p>"
+        html_body += f"<p><strong>Size:</strong> {prop['size_m2']}</p>"
+        if prop.get('price_per_m2'):
+            price_per_m2_formatted = f"{prop['price_per_m2']:,}".replace(",", ".")
+            html_body += f"<p><strong>Price per m²:</strong> {price_per_m2_formatted} kr.</p>"
+        html_body += f"<p><strong>Bedrooms:</strong> {prop['bedrooms']}</p>"
+        if prop.get('has_balcony') is not None:
+            html_body += f"<p><strong>Balcony:</strong> {'yes' if prop['has_balcony'] else 'no'}</p>"
+        if prop.get('has_terrace') is not None:
+            html_body += f"<p><strong>Terrace:</strong> {'yes' if prop['has_terrace'] else 'no'}</p>"
+        if prop.get('image_url'):
+            html_body += f"<img src='{prop['image_url']}' alt='Property image' style='max-width: 600px; height: auto; margin: 10px 0;' />"
+        html_body += f"<p><a href='{prop['link']}'>View Property</a></p>"
+        html_body += "</div>"
+    html_body += "</body></html>"
 
     print("\nAttempting to send email notification...")
-    send_email_notification(subject, body)
+    send_email_notification(subject, html_body)
 else:
     print("\nNo new properties found. No email notification sent.")
