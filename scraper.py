@@ -253,25 +253,34 @@ def get_numeric_price(price_str):
         return float("inf")  # Place properties with non-numeric prices at the end
 
 
-new_properties.sort(key=lambda x: get_numeric_price(x["price"]))
+config = load_config()
+all_properties = config[args.user].get("properties", [])
+
+all_properties.sort(key=lambda x: get_numeric_price(x["price"]))
 
 print("\nChecking for balcony and terrace information...")
-for prop in new_properties:
-    try:
-        driver.get(prop["link"])
-        time.sleep(2)
-        page_text = driver.page_source.lower()
-        prop["has_balcony"] = "svalir" in page_text
-        prop["has_terrace"] = "sérafnota" in page_text or "garð" in page_text
-    except Exception as e:
-        print(f"Error checking features for {prop['address']}: {e}")
-        prop["has_balcony"] = False
-        prop["has_terrace"] = False
+for prop in all_properties:
+    if prop.get('has_balcony') is None or prop.get('has_terrace') is None:
+        try:
+            driver.get(prop["link"])
+            time.sleep(2)
+            page_text = driver.page_source.lower()
+            prop["has_balcony"] = "svalir" in page_text
+            prop["has_terrace"] = "sérafnota" in page_text or "garð" in page_text
+        except Exception as e:
+            print(f"Error checking features for {prop['address']}: {e}")
+            if prop.get('has_balcony') is None:
+                prop["has_balcony"] = False
+            if prop.get('has_terrace') is None:
+                prop["has_terrace"] = False
 
 if driver:
     driver.quit()
 
-for i, prop in enumerate(new_properties):
+config[args.user]["properties"] = all_properties
+save_config(config)
+
+for i, prop in enumerate(all_properties):
     print(f"\nProperty #{i+1}")
     print(f"  Address: {prop['address']}")
     print(f"  Price: {prop['price']}")
@@ -286,11 +295,11 @@ for i, prop in enumerate(new_properties):
         print(f"  Terrace: {'yes' if prop['has_terrace'] else 'no'}")
     print(f"  Link: {prop['link']}")
 
-# --- Send email notification if new properties are found ---
-if new_properties:
-    subject = f"New Properties Found: {len(new_properties)} listings"
-    html_body = "<html><body><h2>New properties matching your criteria have been found:</h2>"
-    for prop in new_properties:
+# --- Send email notification with all properties ---
+if all_properties:
+    subject = f"Properties Found: {len(all_properties)} listings"
+    html_body = "<html><body><h2>Properties matching your criteria:</h2>"
+    for prop in all_properties:
         html_body += f"<div style='margin-bottom: 30px; padding: 15px; border: 1px solid #ddd;'>"
         html_body += f"<h3>{prop['address']}</h3>"
         html_body += f"<p><strong>Price:</strong> {prop['price']}</p>"
@@ -312,4 +321,4 @@ if new_properties:
     print("\nAttempting to send email notification...")
     send_email_notification(subject, html_body)
 else:
-    print("\nNo new properties found. No email notification sent.")
+    print("\nNo properties found. No email notification sent.")
