@@ -8,15 +8,16 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.chrome.service import Service
 
-import requests
 import os
 import json
+
+import sib_api_v3_sdk
+from sib_api_v3_sdk.rest import ApiException
 
 class Scraper:
 
     def __init__(self):
         self.config_file = "config.json"
-        self.api_url = "https://api.sendgrid.com/v3/mail/send"
         
         # --- User-specific Setup ---
         parser = argparse.ArgumentParser(description="Scrape real estate listings.")
@@ -35,7 +36,7 @@ class Scraper:
 
         self.user_config = config[self.args.user]
 
-        self.API_KEY = self.user_config.get("SENDGRID_API_KEY")
+        self.API_KEY = self.user_config.get("BREVO_API_KEY")
         self.FROM_EMAIL = self.user_config.get("FROM_EMAIL")
         self.TO_EMAIL = self.user_config.get("TO_EMAIL")
         self.MIN_PRICE = self.user_config.get("MIN_PRICE")
@@ -65,25 +66,27 @@ class Scraper:
             )
             return False
 
-        headers = {"Authorization": f"Bearer {self.API_KEY}", "Content-Type": "application/json"}
-        data = {
-            "personalizations": [{"to": [{"email": self.TO_EMAIL}], "subject": subject}],
-            "from": {"email": self.FROM_EMAIL},
-            "content": [{"type": "text/html", "value": html_body}],
-        }
+        configuration = sib_api_v3_sdk.Configuration()
+        configuration.api_key['api-key'] = self.API_KEY
+        api_instance = sib_api_v3_sdk.TransactionalEmailsApi(sib_api_v3_sdk.ApiClient(configuration))
+        
+        sender = {"name": "Property Scraper", "email": self.FROM_EMAIL}
+        to = [{"email": self.TO_EMAIL}]
+        
+        send_smtp_email = sib_api_v3_sdk.SendSmtpEmail(
+            to=to,
+            html_content=html_body,
+            sender=sender,
+            subject=subject
+        )
 
         print(f"Attempting to send email to {self.TO_EMAIL}...")
         try:
-            response = requests.post(self.api_url, headers=headers, data=json.dumps(data))
-            print(f"HTTP Status Code: {response.status_code}")
-            if response.status_code == 202:
-                print("SUCCESS: Email sent.")
-                return True
-            else:
-                print(f"ERROR: Failed to send email. Response: {response.text}")
-                return False
-        except requests.exceptions.RequestException as e:
-            print(f"An error occurred while sending email: {e}")
+            api_response = api_instance.send_transac_email(send_smtp_email)
+            print(f"Email sent successfully! Message ID: {api_response.message_id}")
+            return True
+        except ApiException as e:
+            print(f"Exception when calling TransactionalEmailsApi->send_transac_email: {e}")
             return False
     
     def scrape_visir_properties(self):
