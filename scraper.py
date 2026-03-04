@@ -113,7 +113,6 @@ class Scraper:
         skip_address_substrings = self.user_config.get("ignored_strings", [])
 
         new_properties_found_this_run = []
-        processed_links = set()
 
         driver = None
 
@@ -209,10 +208,6 @@ class Scraper:
                         pass
 
                 if link != "N/A" and address != "N/A":
-                    if link in processed_links:
-                        continue
-                    processed_links.add(link)
-
                     prop_data = {
                         "address": address,
                         "price": price_str,
@@ -260,11 +255,10 @@ class Scraper:
 
         new_properties.sort(key=lambda x: get_numeric_price(x["price"]))
 
-        print("\nChecking for balcony, terrace, and image information...")
+        print("\nChecking for balcony, and image information...")
         for prop in new_properties:
             needs_check = (
                 prop.get("has_balcony") is None
-                or prop.get("has_terrace") is None
                 or not prop.get("image_url")
             )
 
@@ -277,10 +271,6 @@ class Scraper:
 
                     if prop.get("has_balcony") is None:
                         prop["has_balcony"] = "svalir" in page_text
-                    if prop.get("has_terrace") is None:
-                        prop["has_terrace"] = (
-                            "sérafnota" in page_text or "garð" in page_text
-                        )
 
                     if not prop.get("image_url"):
                         img_tag = soup.find(
@@ -314,8 +304,10 @@ class Scraper:
                     print(f"Error checking features for {prop['address']}: {e}")
                     if prop.get("has_balcony") is None:
                         prop["has_balcony"] = False
-                    if prop.get("has_terrace") is None:
-                        prop["has_terrace"] = False
+
+        print("\nFiltering for properties with a balcony...")
+        new_properties = [prop for prop in new_properties if prop.get("has_balcony")]
+        print(f"Found {len(new_properties)} properties with a balcony.")
 
         if driver:
             driver.quit()
@@ -361,8 +353,6 @@ class Scraper:
                 print(f"  Bedrooms: {prop['bedrooms']}")
                 if prop.get("has_balcony") is not None:
                     print(f"  Balcony: {'yes' if prop['has_balcony'] else 'no'}")
-                if prop.get("has_terrace") is not None:
-                    print(f"  Terrace: {'yes' if prop['has_terrace'] else 'no'}")
                 print(f"  Link: {prop['link']}")
 
         print_properties(under_average, "Properties Under Average Price")
@@ -416,8 +406,6 @@ class Scraper:
                     html += f"<p><strong>Bedrooms:</strong> {prop['bedrooms']}</p>"
                     if prop.get("has_balcony") is not None:
                         html += f"<p><strong>Balcony:</strong> {'yes' if prop['has_balcony'] else 'no'}</p>"
-                    if prop.get("has_terrace") is not None:
-                        html += f"<p><strong>Terrace:</strong> {'yes' if prop['has_terrace'] else 'no'}</p>"
                     if prop.get("image_url"):
                         html += f"<img src='{prop['image_url']}' alt='Property image' style='max-width: 600px; height: auto; margin: 10px 0;' />"
                     html += f"<p><a href='{prop['link']}'>View Property</a></p>"
