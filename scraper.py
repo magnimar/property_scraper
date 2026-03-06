@@ -8,8 +8,10 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.chrome.service import Service
 
+import base64
 import os
 import json
+import requests
 
 import sib_api_v3_sdk
 from sib_api_v3_sdk.rest import ApiException
@@ -57,6 +59,30 @@ class Scraper:
             except json.JSONDecodeError:
                 print(f"ERROR: Could not decode JSON from '{self.config_file}'.")
                 exit()
+
+    def fetch_image_as_data_uri(self, image_url, referer=None, max_size_kb=500):
+        """Fetch image from URL and return a data URI for embedding, or None on failure."""
+        if not image_url or not image_url.startswith("http"):
+            return None
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
+        }
+        if referer:
+            headers["Referer"] = referer
+        try:
+            r = requests.get(image_url, timeout=15, headers=headers)
+            r.raise_for_status()
+            content = r.content
+            if len(content) > max_size_kb * 1024:
+                return None
+            content_type = r.headers.get("Content-Type", "image/jpeg").split(";")[0].strip()
+            if content_type not in ("image/jpeg", "image/png", "image/gif", "image/webp"):
+                content_type = "image/jpeg"
+            b64 = base64.b64encode(content).decode("ascii")
+            return f"data:{content_type};base64,{b64}"
+        except Exception:
+            return None
 
     def send_email_notification(self, subject, html_body):
         if not all([self.API_KEY, self.FROM_EMAIL, self.TO_EMAIL]):
@@ -239,26 +265,61 @@ class Scraper:
                 break
 
         return new_properties_found_this_run, driver
+    
+    def get_numeric_price(self, price_str):
+        try:
+            return int(price_str.replace(".", "").replace(" kr", ""))
+        except (ValueError, TypeError):
+            return 0
+    
+    def generate_property_html(self, properties, title):
+        html = f"<h2>{title}</h2>"
+        for prop in properties:
+            html += "<div style='margin-bottom: 30px; padding: 15px; border: 1px solid #ddd;'>"
+            html += f"<h3>{prop['address']}</h3>"
+            html += f"<p><strong>Verð:</strong> {prop['price']}</p>"
+            html += f"<p><strong>Stærð:</strong> {prop['size_m2']}</p>"
+            if prop.get("price_per_m2"):
+                price_per_m2_formatted = f"{prop['price_per_m2']:,}".replace(
+                    ",", "."
+                )
+                html += f"<p><strong>Fermetraverð:</strong> {price_per_m2_formatted} kr.</p>"
+            html += f"<p><strong>Svefnherbergi:</strong> {prop['bedrooms']}</p>"
+            if prop.get("has_balcony") is not None:
+                html += f"<p><strong>Svalir:</strong> {'Já' if prop['has_balcony'] else 'Nei'}</p>"
+            if prop.get("has_terrace") is not None:
+                html += f"<p><strong>Garður:</strong> {'Já' if prop['has_terrace'] else 'Nei'}</p>"
+            if prop.get("image_data_uri"):
+                html += f"<img src=\"{prop['image_data_uri']}\" alt='Property image' style='max-width: 600px; height: auto; margin: 10px 0;' />"
+            elif prop.get("image_url"):
+                html += f"<img src='{prop['image_url']}' alt='Property image' style='max-width: 600px; height: auto; margin: 10px 0;' />"
+            html += f"<p><a href='{prop['link']}'>View Property</a></p>"
+            html += "</div>"
+        return html
+    
+    def print_properties(self, properties, title):
+        print(f"\n--- {title} ---")
+        for i, prop in enumerate(properties):
+            print(f"\nProperty #{i+1}")
+            print(f"  Address: {prop['address']}")
+            print(f"  Price: {prop['price']}")
+            print(f"  Size: {prop['size_m2']}")
+            if prop.get("price_per_m2"):
+                price_per_m2_formatted = f"{prop['price_per_m2']:,}".replace(
+                    ",", "."
+                )
+                print(f"  Price per m²: {price_per_m2_formatted} kr.")
+            print(f"  Bedrooms: {prop['bedrooms']}")
+            if prop.get("has_balcony") is not None:
+                print(f"  Balcony: {'yes' if prop['has_balcony'] else 'no'}")
+            if prop.get("has_terrace") is not None:
+                print(f"  Terrace: {'yes' if prop['has_terrace'] else 'no'}")
+            print(f"  Link: {prop['link']}")
 
     def main(self):
-        # --- Run the scraper ---
         new_properties, driver = self.scrape_visir_properties()
 
-        # Print the results
-        print(
-            f"\n--- Total NEW unique properties found this run: {len(new_properties)} ---"
-        )
-
-        # Sort new_properties by price
-        def get_numeric_price(price_str):
-            try:
-                return int(price_str.replace(".", "").replace(" kr", ""))
-            except (ValueError, TypeError):
-                return float(
-                    "inf"
-                )  # Place properties with non-numeric prices at the end
-
-        new_properties.sort(key=lambda x: get_numeric_price(x["price"]))
+        new_properties.sort(key=lambda x: self.get_numeric_price(x["price"]))
 
         print("\nChecking for balcony, terrace, and image information...")
         for prop in new_properties:
@@ -278,38 +339,21 @@ class Scraper:
                     if prop.get("has_balcony") is None:
                         prop["has_balcony"] = "svalir" in page_text
                     if prop.get("has_terrace") is None:
-                        prop["has_terrace"] = (
-                            "sérafnota" in page_text or "garð" in page_text
-                        )
+                        prop["has_terrace"] = "sérafnota" in page_text
 
-                    if not prop.get("image_url"):
-                        img_tag = soup.find(
-                            "img",
-                            class_=lambda c: c
-                            and (
-                                "property" in str(c).lower()
-                                or "main" in str(c).lower()
-                                or "hero" in str(c).lower()
-                            ),
-                        )
+                    if not prop.get("image_url") or "staticmap" in (prop.get("image_url") or ""):
+                        img_tag = soup.find("img", src=lambda s: s and "api-beta.fasteignir.is/pictures" in s)
                         if not img_tag:
-                            img_tag = soup.find(
-                                "img",
-                                src=lambda s: s
-                                and (
-                                    "property" in s.lower()
-                                    or "estate" in s.lower()
-                                    or "fasteignir" in s.lower()
-                                ),
-                            )
-                        if not img_tag:
-                            img_tag = soup.find("img", src=True)
-
-                        if img_tag and img_tag.get("src"):
-                            image_url = img_tag["src"]
-                            if not image_url.startswith("http"):
-                                image_url = urljoin(prop["link"], image_url)
-                            prop["image_url"] = image_url
+                            for img in soup.find_all("img", attrs={"data-src": True}):
+                                if img.get("data-src") and "api-beta.fasteignir.is/pictures" in img.get("data-src", ""):
+                                    img_tag = img
+                                    break
+                        if img_tag:
+                            image_url = img_tag.get("src") or img_tag.get("data-src")
+                            if image_url:
+                                if not image_url.startswith("http"):
+                                    image_url = urljoin(prop["link"], image_url)
+                                prop["image_url"] = image_url
                 except Exception as e:
                     print(f"Error checking features for {prop['address']}: {e}")
                     if prop.get("has_balcony") is None:
@@ -319,6 +363,10 @@ class Scraper:
 
         if driver:
             driver.quit()
+
+        # only keep properties with a balcony or terrace
+        new_properties = [prop for prop in new_properties if prop.get("has_balcony") or prop.get("has_terrace")]
+        print(f"Found {len(new_properties)} properties with a balcony or terrace.")
 
         # --- Calculate average price ---
         total_price = 0
@@ -346,33 +394,13 @@ class Scraper:
             except (ValueError, TypeError):
                 continue
 
-        def print_properties(properties, title):
-            print(f"\n--- {title} ---")
-            for i, prop in enumerate(properties):
-                print(f"\nProperty #{i+1}")
-                print(f"  Address: {prop['address']}")
-                print(f"  Price: {prop['price']}")
-                print(f"  Size: {prop['size_m2']}")
-                if prop.get("price_per_m2"):
-                    price_per_m2_formatted = f"{prop['price_per_m2']:,}".replace(
-                        ",", "."
-                    )
-                    print(f"  Price per m²: {price_per_m2_formatted} kr.")
-                print(f"  Bedrooms: {prop['bedrooms']}")
-                if prop.get("has_balcony") is not None:
-                    print(f"  Balcony: {'yes' if prop['has_balcony'] else 'no'}")
-                if prop.get("has_terrace") is not None:
-                    print(f"  Terrace: {'yes' if prop['has_terrace'] else 'no'}")
-                print(f"  Link: {prop['link']}")
 
-        print_properties(under_average, "Properties Under Average Price")
-        print_properties(over_average, "Properties Over Average Price")
+        self.print_properties(under_average, "Properties Under Average Price")
+        self.print_properties(over_average, "Properties Over Average Price")
 
-        # --- Send email notification with all properties ---
         if new_properties:
-            subject = f"Properties Found: {len(new_properties)} listings"
+            subject = f"Fann {len(new_properties)} eignir fyrir þig"
 
-            # --- Calculate average price per square meter ---
             avg_price_per_m2 = {}
             bedroom_counts = {}
             for prop in new_properties:
@@ -391,45 +419,31 @@ class Scraper:
                         total_price / bedroom_counts[bedrooms]
                     )
 
+            # Embed images as data URIs so they display reliably in email
+            print("Embedding property images for email...")
+            for prop in new_properties:
+                if prop.get("image_url"):
+                    data_uri = self.fetch_image_as_data_uri(
+                        prop["image_url"], referer=prop.get("link")
+                    )
+                    prop["image_data_uri"] = data_uri
+
             # --- Construct the email body ---
             html_body = "<html><body>"
-            html_body += "<h2>Average Price per Square Meter:</h2>"
+            html_body += "<h2>Meðalfermetraverð fyrir valin svæði:</h2>"
             html_body += "<ul>"
             for bedrooms, avg_price in sorted(avg_price_per_m2.items()):
                 avg_price_formatted = f"{avg_price:,}".replace(",", ".")
-                html_body += f"<li><strong>{bedrooms} bedrooms:</strong> {avg_price_formatted} kr.</li>"
+                html_body += f"<li><strong>{bedrooms} svefnherbergi:</strong> {avg_price_formatted} kr.</li>"
             html_body += "</ul>"
             html_body += "<hr>"
 
-            def generate_property_html(properties, title):
-                html = f"<h2>{title}</h2>"
-                for prop in properties:
-                    html += "<div style='margin-bottom: 30px; padding: 15px; border: 1px solid #ddd;'>"
-                    html += f"<h3>{prop['address']}</h3>"
-                    html += f"<p><strong>Price:</strong> {prop['price']}</p>"
-                    html += f"<p><strong>Size:</strong> {prop['size_m2']}</p>"
-                    if prop.get("price_per_m2"):
-                        price_per_m2_formatted = f"{prop['price_per_m2']:,}".replace(
-                            ",", "."
-                        )
-                        html += f"<p><strong>Price per m²:</strong> {price_per_m2_formatted} kr.</p>"
-                    html += f"<p><strong>Bedrooms:</strong> {prop['bedrooms']}</p>"
-                    if prop.get("has_balcony") is not None:
-                        html += f"<p><strong>Balcony:</strong> {'yes' if prop['has_balcony'] else 'no'}</p>"
-                    if prop.get("has_terrace") is not None:
-                        html += f"<p><strong>Terrace:</strong> {'yes' if prop['has_terrace'] else 'no'}</p>"
-                    if prop.get("image_url"):
-                        html += f"<img src='{prop['image_url']}' alt='Property image' style='max-width: 600px; height: auto; margin: 10px 0;' />"
-                    html += f"<p><a href='{prop['link']}'>View Property</a></p>"
-                    html += "</div>"
-                return html
-
-            html_body += generate_property_html(
-                under_average, "Properties Under Average Price"
+            html_body += self.generate_property_html(
+                under_average, "Eignir undir meðalfermetraverði"
             )
             html_body += "<hr>"
-            html_body += generate_property_html(
-                over_average, "Properties Over Average Price"
+            html_body += self.generate_property_html(
+                over_average, "Eignir yfir meðalfermetraverði"
             )
 
             html_body += "</body></html>"
