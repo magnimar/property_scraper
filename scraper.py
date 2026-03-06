@@ -289,9 +289,7 @@ class Scraper:
                 html += f"<p><strong>Svalir:</strong> {'Já' if prop['has_balcony'] else 'Nei'}</p>"
             if prop.get("has_terrace") is not None:
                 html += f"<p><strong>Garður:</strong> {'Já' if prop['has_terrace'] else 'Nei'}</p>"
-            if prop.get("image_data_uri"):
-                html += f"<img src=\"{prop['image_data_uri']}\" alt='Property image' style='max-width: 600px; height: auto; margin: 10px 0;' />"
-            elif prop.get("image_url"):
+            if prop.get("image_url"):
                 html += f"<img src='{prop['image_url']}' alt='Property image' style='max-width: 600px; height: auto; margin: 10px 0;' />"
             html += f"<p><a href='{prop['link']}'>View Property</a></p>"
             html += "</div>"
@@ -394,7 +392,6 @@ class Scraper:
             except (ValueError, TypeError):
                 continue
 
-
         self.print_properties(under_average, "Properties Under Average Price")
         self.print_properties(over_average, "Properties Over Average Price")
 
@@ -419,16 +416,13 @@ class Scraper:
                         total_price / bedroom_counts[bedrooms]
                     )
 
-            # Embed images as data URIs so they display reliably in email
             print("Embedding property images for email...")
             for prop in new_properties:
                 if prop.get("image_url"):
                     data_uri = self.fetch_image_as_data_uri(
                         prop["image_url"], referer=prop.get("link")
                     )
-                    prop["image_data_uri"] = data_uri
 
-            # --- Construct the email body ---
             html_body = "<html><body>"
             html_body += "<h2>Meðalfermetraverð fyrir valin svæði:</h2>"
             html_body += "<ul>"
