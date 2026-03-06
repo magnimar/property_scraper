@@ -383,11 +383,11 @@ class Scraper:
 
             # --- Construct the email body ---
             html_body = "<html><body>"
-            html_body += "<h2>Average Price per Square Meter:</h2>"
+            html_body += "<h2>Meðalfermetraverð fyrir valin svæði:</h2>"
             html_body += "<ul>"
             for bedrooms, avg_price in sorted(avg_price_per_m2.items()):
                 avg_price_formatted = f"{avg_price:,}".replace(",", ".")
-                html_body += f"<li><strong>{bedrooms} bedrooms:</strong> {avg_price_formatted} kr.</li>"
+                html_body += f"<li><strong>{bedrooms} svefnherbergi:</strong> {avg_price_formatted} kr.</li>"
             html_body += "</ul>"
             html_body += "<hr>"
 
@@ -396,14 +396,14 @@ class Scraper:
                 for prop in properties:
                     html += "<div style='margin-bottom: 30px; padding: 15px; border: 1px solid #ddd;'>"
                     html += f"<h3>{prop['address']}</h3>"
-                    html += f"<p><strong>Price:</strong> {prop['price']}</p>"
-                    html += f"<p><strong>Size:</strong> {prop['size_m2']}</p>"
+                    html += f"<p><strong>Verð:</strong> {prop['price']}</p>"
+                    html += f"<p><strong>Stærð:</strong> {prop['size_m2']}</p>"
                     if prop.get("price_per_m2"):
                         price_per_m2_formatted = f"{prop['price_per_m2']:,}".replace(
                             ",", "."
                         )
-                        html += f"<p><strong>Price per m²:</strong> {price_per_m2_formatted} kr.</p>"
-                    html += f"<p><strong>Bedrooms:</strong> {prop['bedrooms']}</p>"
+                        html += f"<p><strong>Fermetraverð:</strong> {price_per_m2_formatted} kr.</p>"
+                    html += f"<p><strong>Svefnherbergi:</strong> {prop['bedrooms']}</p>"
                     if prop.get("has_balcony") is not None:
                         html += f"<p><strong>Balcony:</strong> {'yes' if prop['has_balcony'] else 'no'}</p>"
                     if prop.get("image_url"):
