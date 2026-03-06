@@ -312,16 +312,29 @@ class Scraper:
         if driver:
             driver.quit()
 
+        # Remove properties where both balcony and terrace are false
+        new_properties = [
+            p
+            for p in new_properties
+            if not (
+                p.get("has_balcony") is False and p.get("has_terrace") is False
+            )
+        ]
+
         # --- Calculate average price ---
         total_price = 0
         property_count = 0
+        print("\n\n")
+        print("-- printing properties --")
         for prop in new_properties:
+            print(prop)
             try:
                 price = int(prop["price"].replace(".", "").replace(" kr", ""))
                 total_price += price
                 property_count += 1
             except (ValueError, TypeError):
                 continue
+        print("\n\n")
 
         average_price = total_price / property_count if property_count > 0 else 0
 
@@ -405,7 +418,9 @@ class Scraper:
                         html += f"<p><strong>Fermetraverð:</strong> {price_per_m2_formatted} kr.</p>"
                     html += f"<p><strong>Svefnherbergi:</strong> {prop['bedrooms']}</p>"
                     if prop.get("has_balcony") is not None:
-                        html += f"<p><strong>Balcony:</strong> {'yes' if prop['has_balcony'] else 'no'}</p>"
+                        html += f"<p><strong>Svalir:</strong> {'Já' if prop['has_balcony'] else 'Nei'}</p>"
+                    if prop.get("has_terrace") is not None:
+                        html += f"<p><strong>Garður:</strong> {'Já' if prop['has_terrace'] else 'Nei'}</p>"
                     if prop.get("image_url"):
                         html += f"<img src='{prop['image_url']}' alt='Property image' style='max-width: 600px; height: auto; margin: 10px 0;' />"
                     html += f"<p><a href='{prop['link']}'>View Property</a></p>"
