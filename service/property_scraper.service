@@ -1,0 +1,15 @@
+[Unit]
+Description=Property scraper (runs at 22:00 for magni then gabriela)
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/property_scraper
+ExecStart=/opt/property_scraper/venv/bin/python -u /opt/property_scraper/run_on_clock.py
+StandardOutput=append:/var/log/property_scraper.log
+StandardError=append:/var/log/property_scraper.log
+Restart=on-failure
+User=raspberrypi
+
+[Install]
+WantedBy=multi-user.target
