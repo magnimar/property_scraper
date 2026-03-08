@@ -76,8 +76,15 @@ class Scraper:
             content = r.content
             if len(content) > max_size_kb * 1024:
                 return None
-            content_type = r.headers.get("Content-Type", "image/jpeg").split(";")[0].strip()
-            if content_type not in ("image/jpeg", "image/png", "image/gif", "image/webp"):
+            content_type = (
+                r.headers.get("Content-Type", "image/jpeg").split(";")[0].strip()
+            )
+            if content_type not in (
+                "image/jpeg",
+                "image/png",
+                "image/gif",
+                "image/webp",
+            ):
                 content_type = "image/jpeg"
             b64 = base64.b64encode(content).decode("ascii")
             return f"data:{content_type};base64,{b64}"
@@ -265,13 +272,13 @@ class Scraper:
                 break
 
         return new_properties_found_this_run, driver
-    
+
     def get_numeric_price(self, price_str):
         try:
             return int(price_str.replace(".", "").replace(" kr", ""))
         except (ValueError, TypeError):
             return 0
-    
+
     def generate_property_html(self, properties, title):
         html = f"<h2>{title}</h2>"
         for prop in properties:
@@ -280,9 +287,7 @@ class Scraper:
             html += f"<p><strong>Verð:</strong> {prop['price']}</p>"
             html += f"<p><strong>Stærð:</strong> {prop['size_m2']}</p>"
             if prop.get("price_per_m2"):
-                price_per_m2_formatted = f"{prop['price_per_m2']:,}".replace(
-                    ",", "."
-                )
+                price_per_m2_formatted = f"{prop['price_per_m2']:,}".replace(",", ".")
                 html += f"<p><strong>Fermetraverð:</strong> {price_per_m2_formatted} kr.</p>"
             html += f"<p><strong>Svefnherbergi:</strong> {prop['bedrooms']}</p>"
             if prop.get("has_balcony") is not None:
@@ -294,7 +299,7 @@ class Scraper:
             html += f"<p><a href='{prop['link']}'>View Property</a></p>"
             html += "</div>"
         return html
-    
+
     def print_properties(self, properties, title):
         print(f"\n--- {title} ---")
         for i, prop in enumerate(properties):
@@ -303,9 +308,7 @@ class Scraper:
             print(f"  Price: {prop['price']}")
             print(f"  Size: {prop['size_m2']}")
             if prop.get("price_per_m2"):
-                price_per_m2_formatted = f"{prop['price_per_m2']:,}".replace(
-                    ",", "."
-                )
+                price_per_m2_formatted = f"{prop['price_per_m2']:,}".replace(",", ".")
                 print(f"  Price per m²: {price_per_m2_formatted} kr.")
             print(f"  Bedrooms: {prop['bedrooms']}")
             if prop.get("has_balcony") is not None:
@@ -339,11 +342,20 @@ class Scraper:
                     if prop.get("has_terrace") is None:
                         prop["has_terrace"] = "sérafnota" in page_text
 
-                    if not prop.get("image_url") or "staticmap" in (prop.get("image_url") or ""):
-                        img_tag = soup.find("img", src=lambda s: s and "api-beta.fasteignir.is/pictures" in s)
+                    if not prop.get("image_url") or "staticmap" in (
+                        prop.get("image_url") or ""
+                    ):
+                        img_tag = soup.find(
+                            "img",
+                            src=lambda s: s and "api-beta.fasteignir.is/pictures" in s,
+                        )
                         if not img_tag:
                             for img in soup.find_all("img", attrs={"data-src": True}):
-                                if img.get("data-src") and "api-beta.fasteignir.is/pictures" in img.get("data-src", ""):
+                                if img.get(
+                                    "data-src"
+                                ) and "api-beta.fasteignir.is/pictures" in img.get(
+                                    "data-src", ""
+                                ):
                                     img_tag = img
                                     break
                         if img_tag:
@@ -363,7 +375,11 @@ class Scraper:
             driver.quit()
 
         # only keep properties with a balcony or terrace
-        new_properties = [prop for prop in new_properties if prop.get("has_balcony") or prop.get("has_terrace")]
+        new_properties = [
+            prop
+            for prop in new_properties
+            if prop.get("has_balcony") or prop.get("has_terrace")
+        ]
         print(f"Found {len(new_properties)} properties with a balcony or terrace.")
 
         # --- Calculate average price ---
@@ -419,7 +435,7 @@ class Scraper:
             print("Embedding property images for email...")
             for prop in new_properties:
                 if prop.get("image_url"):
-                    data_uri = self.fetch_image_as_data_uri(
+                    self.fetch_image_as_data_uri(
                         prop["image_url"], referer=prop.get("link")
                     )
 

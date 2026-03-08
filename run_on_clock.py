@@ -2,16 +2,11 @@
 """Run scraper for magni then gabriela when the clock hits 22:00."""
 
 import subprocess
-import sys
 import time
-from datetime import datetime, timedelta
-from pathlib import Path
+from datetime import datetime
+
 
 def main():
-
-    time_to_run_hour = 22
-    time_to_run_minute = 0
-
 
     while True:
         current_time = datetime.now()
@@ -20,7 +15,7 @@ def main():
             subprocess.run(["venv/bin/python", "scraper.py", "--user", "magni"])
 
             time.sleep(60)
-            
+
             print("Running scraper for gabriela...")
             subprocess.run(["venv/bin/python", "scraper.py", "--user", "gabriela"])
 
