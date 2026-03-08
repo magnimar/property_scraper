@@ -1,4 +1,5 @@
 import argparse
+import logging
 import time
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin
@@ -18,8 +19,10 @@ from sib_api_v3_sdk.rest import ApiException
 
 
 class Scraper:
-
     def __init__(self):
+        logging.basicConfig(
+            level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
+        )
         self.config_file = "config.json"
 
         # --- User-specific Setup ---
@@ -34,7 +37,7 @@ class Scraper:
         config = self.load_config()
 
         if self.args.user not in config:
-            print(f"ERROR: User '{self.args.user}' not found in '{self.config_file}'.")
+            logging.error(f"User '{self.args.user}' not found in '{self.config_file}'.")
             exit()
 
         self.user_config = config[self.args.user]
@@ -51,13 +54,13 @@ class Scraper:
     def load_config(self):
         """Loads the entire configuration from config.json."""
         if not os.path.exists(self.config_file):
-            print(f"ERROR: Configuration file '{self.config_file}' not found.")
+            logging.error(f"Configuration file '{self.config_file}' not found.")
             exit()
         with open(self.config_file, "r", encoding="utf-8") as f:
             try:
                 return json.load(f)
             except json.JSONDecodeError:
-                print(f"ERROR: Could not decode JSON from '{self.config_file}'.")
+                logging.error(f"Could not decode JSON from '{self.config_file}'.")
                 exit()
 
     def fetch_image_as_data_uri(self, image_url, referer=None, max_size_kb=500):
@@ -93,7 +96,7 @@ class Scraper:
 
     def send_email_notification(self, subject, html_body):
         if not all([self.API_KEY, self.FROM_EMAIL, self.TO_EMAIL]):
-            print(
+            logging.warning(
                 "Email sending skipped due to missing API_KEY, FROM_EMAIL, or TO_EMAIL in config."
             )
             return False
@@ -111,13 +114,15 @@ class Scraper:
             to=to, html_content=html_body, sender=sender, subject=subject
         )
 
-        print(f"Attempting to send email to {self.TO_EMAIL}...")
+        logging.info(f"Attempting to send email to {self.TO_EMAIL}...")
         try:
             api_response = api_instance.send_transac_email(send_smtp_email)
-            print(f"Email sent successfully! Message ID: {api_response.message_id}")
+            logging.info(
+                f"Email sent successfully! Message ID: {api_response.message_id}"
+            )
             return True
         except ApiException as e:
-            print(
+            logging.error(
                 f"Exception when calling TransactionalEmailsApi->send_transac_email: {e}"
             )
             return False
@@ -134,7 +139,7 @@ class Scraper:
                 self.ZIP_CODES,
             ]
         ):
-            print("ERROR: Missing search parameters in config file.")
+            logging.error("Missing search parameters in config file.")
             return [], None
 
         zip_codes_str = self.ZIP_CODES
@@ -150,7 +155,7 @@ class Scraper:
 
         driver = None
 
-        print("Setting up Chrome driver...")
+        logging.info("Setting up Chrome driver...")
         options = webdriver.ChromeOptions()
         options.add_argument("--headless")
         options.add_argument("--no-sandbox")
@@ -167,15 +172,15 @@ class Scraper:
             try:
                 driver = webdriver.Chrome(service=service, options=options)
 
-                print("Successfully started chrome")
+                logging.info("Successfully started chrome")
 
                 break
 
             except Exception:
-                print("Failed to start chrome, waiting and trying again")
+                logging.info("Failed to start chrome, waiting and trying again")
                 time.sleep(5)
 
-        print(f"Opening browser and navigating to {start_url}...")
+        logging.info(f"Opening browser and navigating to {start_url}...")
         driver.get(start_url)
         time.sleep(5)
 
@@ -184,7 +189,7 @@ class Scraper:
             property_cards = soup.find_all(
                 "div", class_=lambda c: c and "estate__item" in c
             )
-            print(f"Found {len(property_cards)} properties on the current page.")
+            logging.info(f"Found {len(property_cards)} properties on the current page.")
 
             for card in property_cards:
                 link_tag = card.find("a", class_="js-property-link", href=True)
@@ -301,28 +306,28 @@ class Scraper:
         return html
 
     def print_properties(self, properties, title):
-        print(f"\n--- {title} ---")
+        logging.info(f"\n--- {title} ---")
         for i, prop in enumerate(properties):
-            print(f"\nProperty #{i+1}")
-            print(f"  Address: {prop['address']}")
-            print(f"  Price: {prop['price']}")
-            print(f"  Size: {prop['size_m2']}")
+            logging.info(f"\nProperty #{i+1}")
+            logging.info(f"  Address: {prop['address']}")
+            logging.info(f"  Price: {prop['price']}")
+            logging.info(f"  Size: {prop['size_m2']}")
             if prop.get("price_per_m2"):
                 price_per_m2_formatted = f"{prop['price_per_m2']:,}".replace(",", ".")
-                print(f"  Price per m²: {price_per_m2_formatted} kr.")
-            print(f"  Bedrooms: {prop['bedrooms']}")
+                logging.info(f"  Price per m²: {price_per_m2_formatted} kr.")
+            logging.info(f"  Bedrooms: {prop['bedrooms']}")
             if prop.get("has_balcony") is not None:
-                print(f"  Balcony: {'yes' if prop['has_balcony'] else 'no'}")
+                logging.info(f"  Balcony: {'yes' if prop['has_balcony'] else 'no'}")
             if prop.get("has_terrace") is not None:
-                print(f"  Terrace: {'yes' if prop['has_terrace'] else 'no'}")
-            print(f"  Link: {prop['link']}")
+                logging.info(f"  Terrace: {'yes' if prop['has_terrace'] else 'no'}")
+            logging.info(f"  Link: {prop['link']}")
 
     def main(self):
         new_properties, driver = self.scrape_visir_properties()
 
         new_properties.sort(key=lambda x: self.get_numeric_price(x["price"]))
 
-        print("\nChecking for balcony, terrace, and image information...")
+        logging.info("\nChecking for balcony, terrace, and image information...")
         for prop in new_properties:
             needs_check = (
                 prop.get("has_balcony") is None
@@ -365,7 +370,7 @@ class Scraper:
                                     image_url = urljoin(prop["link"], image_url)
                                 prop["image_url"] = image_url
                 except Exception as e:
-                    print(f"Error checking features for {prop['address']}: {e}")
+                    logging.info(f"Error checking features for {prop['address']}: {e}")
                     if prop.get("has_balcony") is None:
                         prop["has_balcony"] = False
                     if prop.get("has_terrace") is None:
@@ -380,7 +385,9 @@ class Scraper:
             for prop in new_properties
             if prop.get("has_balcony") or prop.get("has_terrace")
         ]
-        print(f"Found {len(new_properties)} properties with a balcony or terrace.")
+        logging.info(
+            f"Found {len(new_properties)} properties with a balcony or terrace."
+        )
 
         # --- Calculate average price ---
         total_price = 0
@@ -432,7 +439,7 @@ class Scraper:
                         total_price / bedroom_counts[bedrooms]
                     )
 
-            print("Embedding property images for email...")
+            logging.info("Embedding property images for email...")
             for prop in new_properties:
                 if prop.get("image_url"):
                     self.fetch_image_as_data_uri(
@@ -458,10 +465,10 @@ class Scraper:
 
             html_body += "</body></html>"
 
-            print("\nAttempting to send email notification...")
+            logging.info("\nAttempting to send email notification...")
             self.send_email_notification(subject, html_body)
         else:
-            print("\nNo properties found. No email notification sent.")
+            logging.info("\nNo properties found. No email notification sent.")
 
 
 if __name__ == "__main__":
