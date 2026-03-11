@@ -162,6 +162,14 @@ class Scraper:
         options.add_argument("--disable-dev-shm-usage")
         options.add_argument("--disable-gpu")
 
+        # --- Add these to your options setup ---
+        chrome_prefs = {
+            "profile.managed_default_content_settings.images": 2,  # Disable images
+            "profile.default_content_settings.stylesheets": 2,  # Disable CSS
+        }
+        options.add_experimental_option("prefs", chrome_prefs)
+        options.page_load_strategy = "eager"  # Don't wait for all scripts to finish, change this
+
         if os.path.exists("/usr/bin/chromedriver"):
             service = Service(executable_path="/usr/bin/chromedriver")
             options.binary_location = "/usr/bin/chromium"
