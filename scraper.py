@@ -290,10 +290,16 @@ class Scraper:
             html += "<div style='margin-bottom: 30px; padding: 15px; border: 1px solid #ddd;'>"
             html += f"<h3>{prop['address']}</h3>"
             html += f"<p><strong>Verð:</strong> {prop['price']}</p>"
-            html += f"<p><strong>Stærð:</strong> {prop['size_m2']}</p>"
+            if prop.get("price_per_bedroom") is not None:
+                ppb_formatted = f"{int(prop['price_per_bedroom']):,}".replace(
+                    ",",
+                    ".",
+                )
+                html += f"<p><strong>Verð per svefnherbergi:</strong> {ppb_formatted} kr.</p>"
             if prop.get("price_per_m2"):
                 price_per_m2_formatted = f"{prop['price_per_m2']:,}".replace(",", ".")
                 html += f"<p><strong>Fermetraverð:</strong> {price_per_m2_formatted} kr.</p>"
+            html += f"<p><strong>Stærð:</strong> {prop['size_m2']}</p>"
             html += f"<p><strong>Svefnherbergi:</strong> {prop['bedrooms']}</p>"
             if prop.get("has_balcony") is not None:
                 html += f"<p><strong>Svalir:</strong> {'Já' if prop['has_balcony'] else 'Nei'}</p>"
@@ -321,6 +327,7 @@ class Scraper:
             if prop.get("has_terrace") is not None:
                 logging.info(f"  Terrace: {'yes' if prop['has_terrace'] else 'no'}")
             logging.info(f"  Link: {prop['link']}")
+            logging.info(f"  Price per bedroom: {prop['price_per_bedroom']}")
 
     def main(self):
         new_properties, driver = self.scrape_visir_properties()
@@ -406,6 +413,13 @@ class Scraper:
         under_average = []
         over_average = []
         for prop in new_properties:
+
+            # calculate price per bedroom
+            price_per_bedroom = int(
+                prop["price"].replace(".", "").replace(" kr", "")
+            ) / int(prop["bedrooms"])
+            prop["price_per_bedroom"] = price_per_bedroom
+
             try:
                 price = int(prop["price"].replace(".", "").replace(" kr", ""))
                 if price < average_price:
