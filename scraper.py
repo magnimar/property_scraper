@@ -302,6 +302,7 @@ class Scraper:
             if prop.get("image_url"):
                 html += f"<img src='{prop['image_url']}' alt='Property image' style='max-width: 600px; height: auto; margin: 10px 0;' />"
             html += f"<p><a href='{prop['link']}'>View Property</a></p>"
+            html += f"<p><strong>Verð per svefnherbergi:</strong> {prop['price_per_bedroom']} kr.</p>"
             html += "</div>"
         return html
 
@@ -321,6 +322,7 @@ class Scraper:
             if prop.get("has_terrace") is not None:
                 logging.info(f"  Terrace: {'yes' if prop['has_terrace'] else 'no'}")
             logging.info(f"  Link: {prop['link']}")
+            logging.info(f"  Price per bedroom: {prop['price_per_bedroom']}")
 
     def main(self):
         new_properties, driver = self.scrape_visir_properties()
@@ -406,6 +408,11 @@ class Scraper:
         under_average = []
         over_average = []
         for prop in new_properties:
+
+            # calculate price per bedroom
+            price_per_bedroom = int(prop["price"].replace(".", "").replace(" kr", "")) / int(prop["bedrooms"])
+            prop["price_per_bedroom"] = price_per_bedroom
+
             try:
                 price = int(prop["price"].replace(".", "").replace(" kr", ""))
                 if price < average_price:
