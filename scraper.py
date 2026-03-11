@@ -290,10 +290,16 @@ class Scraper:
             html += "<div style='margin-bottom: 30px; padding: 15px; border: 1px solid #ddd;'>"
             html += f"<h3>{prop['address']}</h3>"
             html += f"<p><strong>Verð:</strong> {prop['price']}</p>"
-            html += f"<p><strong>Stærð:</strong> {prop['size_m2']}</p>"
+            if prop.get("price_per_bedroom") is not None:
+                ppb_formatted = f"{int(prop['price_per_bedroom']):,}".replace(
+                    ",",
+                    ".",
+                )
+                html += f"<p><strong>Verð per svefnherbergi:</strong> {ppb_formatted} kr.</p>"
             if prop.get("price_per_m2"):
                 price_per_m2_formatted = f"{prop['price_per_m2']:,}".replace(",", ".")
                 html += f"<p><strong>Fermetraverð:</strong> {price_per_m2_formatted} kr.</p>"
+            html += f"<p><strong>Stærð:</strong> {prop['size_m2']}</p>"
             html += f"<p><strong>Svefnherbergi:</strong> {prop['bedrooms']}</p>"
             if prop.get("has_balcony") is not None:
                 html += f"<p><strong>Svalir:</strong> {'Já' if prop['has_balcony'] else 'Nei'}</p>"
@@ -302,7 +308,6 @@ class Scraper:
             if prop.get("image_url"):
                 html += f"<img src='{prop['image_url']}' alt='Property image' style='max-width: 600px; height: auto; margin: 10px 0;' />"
             html += f"<p><a href='{prop['link']}'>View Property</a></p>"
-            html += f"<p><strong>Verð per svefnherbergi:</strong> {prop['price_per_bedroom']} kr.</p>"
             html += "</div>"
         return html
 
@@ -410,7 +415,9 @@ class Scraper:
         for prop in new_properties:
 
             # calculate price per bedroom
-            price_per_bedroom = int(prop["price"].replace(".", "").replace(" kr", "")) / int(prop["bedrooms"])
+            price_per_bedroom = int(
+                prop["price"].replace(".", "").replace(" kr", "")
+            ) / int(prop["bedrooms"])
             prop["price_per_bedroom"] = price_per_bedroom
 
             try:
