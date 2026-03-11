@@ -18,10 +18,11 @@ def main():
     load_dotenv()
 
     hour = int(os.environ.get("SCRAPER_HOUR"))
+    minute = int(os.environ.get("SCRAPER_MINUTE"))
 
     while True:
         current_time = datetime.now()
-        if current_time.hour == hour and current_time.minute == 0:
+        if current_time.hour == hour and current_time.minute == minute:
             logging.info("Running scraper for magni...")
             subprocess.run(["venv/bin/python", "scraper.py", "--user", "magni"])
 
