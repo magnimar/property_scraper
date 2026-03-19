@@ -168,7 +168,9 @@ class Scraper:
             "profile.default_content_settings.stylesheets": 2,  # Disable CSS
         }
         options.add_experimental_option("prefs", chrome_prefs)
-        options.page_load_strategy = "eager"  # Don't wait for all scripts to finish, change this
+        options.page_load_strategy = (
+            "eager"  # Don't wait for all scripts to finish, change this
+        )
 
         if os.path.exists("/usr/bin/chromedriver"):
             service = Service(executable_path="/usr/bin/chromedriver")
