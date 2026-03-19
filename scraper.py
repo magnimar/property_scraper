@@ -1,6 +1,8 @@
 import argparse
 import logging
 import time
+from concurrent.futures import ThreadPoolExecutor
+
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin
 from selenium import webdriver
@@ -164,8 +166,8 @@ class Scraper:
 
         # --- Add these to your options setup ---
         chrome_prefs = {
-            "profile.managed_default_content_settings.images": 2,  # Disable images
-            "profile.default_content_settings.stylesheets": 2,  # Disable CSS
+            "profile.managed_default_content_settings.images": 2,
+            "profile.default_content_settings.stylesheets": 2,
         }
         options.add_experimental_option("prefs", chrome_prefs)
         options.page_load_strategy = (
@@ -294,6 +296,66 @@ class Scraper:
         except (ValueError, TypeError):
             return 0
 
+    def _page_request_headers(self):
+        """Same browser-like headers as image fetch (Referer set per-request)."""
+        return {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        }
+
+    def check_property_details(self, prop):
+        """Fetch property detail page with requests (balcony, terrace, image)."""
+        if not prop.get("link"):
+            return prop
+
+        try:
+            headers = self._page_request_headers()
+            headers["Referer"] = "https://fasteignir.visir.is/"
+            response = requests.get(prop["link"], timeout=15, headers=headers)
+            response.raise_for_status()
+
+            page_text = response.text.lower()
+            soup = BeautifulSoup(response.text, "html.parser")
+
+            if prop.get("has_balcony") is None:
+                prop["has_balcony"] = "svalir" in page_text
+            if prop.get("has_terrace") is None:
+                prop["has_terrace"] = "sérafnota" in page_text or "garð" in page_text
+
+            if not prop.get("image_url") or "staticmap" in (
+                prop.get("image_url") or ""
+            ):
+                img_tag = soup.find(
+                    "img",
+                    src=lambda s: s and "api-beta.fasteignir.is/pictures" in s,
+                )
+                if not img_tag:
+                    for img in soup.find_all("img", attrs={"data-src": True}):
+                        if img.get(
+                            "data-src"
+                        ) and "api-beta.fasteignir.is/pictures" in img.get(
+                            "data-src", ""
+                        ):
+                            img_tag = img
+                            break
+                if img_tag:
+                    image_url = img_tag.get("src") or img_tag.get("data-src")
+                    if image_url:
+                        if not image_url.startswith("http"):
+                            image_url = urljoin(prop["link"], image_url)
+                        prop["image_url"] = image_url
+
+        except Exception as e:
+            logging.warning(
+                "Failed to check details for %s: %s", prop.get("address"), e
+            )
+            if prop.get("has_balcony") is None:
+                prop["has_balcony"] = False
+            if prop.get("has_terrace") is None:
+                prop["has_terrace"] = False
+
+        return prop
+
     def generate_property_html(self, properties, title):
         html = f"<h2>{title}</h2>"
         for prop in properties:
@@ -340,61 +402,33 @@ class Scraper:
             logging.info(f"  Price per bedroom: {prop['price_per_bedroom']}")
 
     def main(self):
+        logging.info(f"Start time: {time.time()}")
         new_properties, driver = self.scrape_visir_properties()
-
-        new_properties.sort(key=lambda x: self.get_numeric_price(x["price"]))
-
-        logging.info("\nChecking for balcony, terrace, and image information...")
-        for prop in new_properties:
-            needs_check = (
-                prop.get("has_balcony") is None
-                or prop.get("has_terrace") is None
-                or not prop.get("image_url")
-            )
-
-            if needs_check and driver:
-                try:
-                    driver.get(prop["link"])
-                    time.sleep(2)
-                    soup = BeautifulSoup(driver.page_source, "html.parser")
-                    page_text = driver.page_source.lower()
-
-                    if prop.get("has_balcony") is None:
-                        prop["has_balcony"] = "svalir" in page_text
-                    if prop.get("has_terrace") is None:
-                        prop["has_terrace"] = "sérafnota" in page_text
-
-                    if not prop.get("image_url") or "staticmap" in (
-                        prop.get("image_url") or ""
-                    ):
-                        img_tag = soup.find(
-                            "img",
-                            src=lambda s: s and "api-beta.fasteignir.is/pictures" in s,
-                        )
-                        if not img_tag:
-                            for img in soup.find_all("img", attrs={"data-src": True}):
-                                if img.get(
-                                    "data-src"
-                                ) and "api-beta.fasteignir.is/pictures" in img.get(
-                                    "data-src", ""
-                                ):
-                                    img_tag = img
-                                    break
-                        if img_tag:
-                            image_url = img_tag.get("src") or img_tag.get("data-src")
-                            if image_url:
-                                if not image_url.startswith("http"):
-                                    image_url = urljoin(prop["link"], image_url)
-                                prop["image_url"] = image_url
-                except Exception as e:
-                    logging.info(f"Error checking features for {prop['address']}: {e}")
-                    if prop.get("has_balcony") is None:
-                        prop["has_balcony"] = False
-                    if prop.get("has_terrace") is None:
-                        prop["has_terrace"] = False
+        logging.info(f"After having properties, time: {time.time()}")
 
         if driver:
             driver.quit()
+
+        def needs_detail_check(prop):
+            return (
+                prop.get("has_balcony") is None
+                or prop.get("has_terrace") is None
+                or not prop.get("image_url")
+                or "staticmap" in (prop.get("image_url") or "")
+            )
+
+        to_check = [p for p in new_properties if needs_detail_check(p)]
+        logging.info(
+            "Checking %d / %d properties in parallel (requests)...",
+            len(to_check),
+            len(new_properties),
+        )
+        if to_check:
+            with ThreadPoolExecutor(max_workers=15) as executor:
+                list(executor.map(self.check_property_details, to_check))
+
+        new_properties.sort(key=lambda x: self.get_numeric_price(x["price"]))
+        logging.info(f"After sorting properties, time: {time.time()}")
 
         # only keep properties with a balcony or terrace
         new_properties = [
@@ -499,3 +533,7 @@ if __name__ == "__main__":
 
     scraper = Scraper()
     scraper.main()
+
+# 54 seconds before, using selenium
+# 21 seconds now, using requests
+# 16 seconds now, using requests and threading
