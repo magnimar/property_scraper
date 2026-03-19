@@ -320,9 +320,7 @@ class Scraper:
             if prop.get("has_balcony") is None:
                 prop["has_balcony"] = "svalir" in page_text
             if prop.get("has_terrace") is None:
-                prop["has_terrace"] = (
-                    "sérafnota" in page_text or "garð" in page_text
-                )
+                prop["has_terrace"] = "sérafnota" in page_text or "garð" in page_text
 
             if not prop.get("image_url") or "staticmap" in (
                 prop.get("image_url") or ""
@@ -333,7 +331,9 @@ class Scraper:
                 )
                 if not img_tag:
                     for img in soup.find_all("img", attrs={"data-src": True}):
-                        if img.get("data-src") and "api-beta.fasteignir.is/pictures" in img.get(
+                        if img.get(
+                            "data-src"
+                        ) and "api-beta.fasteignir.is/pictures" in img.get(
                             "data-src", ""
                         ):
                             img_tag = img
@@ -533,7 +533,7 @@ if __name__ == "__main__":
 
     scraper = Scraper()
     scraper.main()
-    
+
 # 54 seconds before, using selenium
 # 21 seconds now, using requests
 # 16 seconds now, using requests and threading
