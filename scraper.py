@@ -4,9 +4,6 @@ import time
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin
 from selenium import webdriver
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.chrome.service import Service
 
 import base64
@@ -127,6 +124,15 @@ class Scraper:
             )
             return False
 
+    def _search_results_url(self, page: int) -> str:
+        """Hash-route URL like ...#/?zip=...&stype=sale&page=2 (Visir SPA)."""
+        return (
+            "https://fasteignir.visir.is/search/results/?stype=sale#/"
+            f"?zip={self.ZIP_CODES}&price={self.MIN_PRICE},{self.MAX_PRICE}"
+            f"&bedroom={self.MIN_BEDROOMS},{self.MAX_BEDROOMS}"
+            f"&category=2,1,4,7,17&stype=sale&page={page}"
+        )
+
     def scrape_visir_properties(self):
         base_url = "https://fasteignir.visir.is"
 
@@ -141,12 +147,6 @@ class Scraper:
         ):
             logging.error("Missing search parameters in config file.")
             return [], None
-
-        zip_codes_str = self.ZIP_CODES
-        start_url = (
-            f"https://fasteignir.visir.is/search/results/?stype=sale#/"
-            f"?zip={zip_codes_str}&price={self.MIN_PRICE},{self.MAX_PRICE}&bedroom={self.MIN_BEDROOMS},{self.MAX_BEDROOMS}&category=2,1,4,7,17&stype=sale"
-        )
 
         skip_address_substrings = self.user_config.get("ignored_strings", [])
 
@@ -190,16 +190,23 @@ class Scraper:
                 logging.info("Failed to start chrome, waiting and trying again")
                 time.sleep(5)
 
-        logging.info(f"Opening browser and navigating to {start_url}...")
-        driver.get(start_url)
-        time.sleep(5)
-
+        page_num = 1
         while True:
+            url = self._search_results_url(page_num)
+            logging.info(f"Opening search results page {page_num} …")
+            driver.get(url)
+            time.sleep(5)
+
             soup = BeautifulSoup(driver.page_source, "html.parser")
             property_cards = soup.find_all(
                 "div", class_=lambda c: c and "estate__item" in c
             )
-            logging.info(f"Found {len(property_cards)} properties on the current page.")
+            logging.info(
+                f"Page {page_num}: found {len(property_cards)} property cards."
+            )
+            if not property_cards:
+                logging.info("No more results (empty page). Stopping.")
+                break
 
             for card in property_cards:
                 link_tag = card.find("a", class_="js-property-link", href=True)
@@ -272,19 +279,8 @@ class Scraper:
                         "image_url": image_url,
                     }
                     new_properties_found_this_run.append(prop_data)
-            try:
-                next_button = WebDriverWait(driver, 5).until(
-                    EC.presence_of_element_located(
-                        (
-                            By.CSS_SELECTOR,
-                            "a.b-navigation-direction-next:not(.disabled)",
-                        )
-                    )
-                )
-                driver.execute_script("arguments[0].click();", next_button)
-                time.sleep(5)
-            except Exception:
-                break
+
+            page_num += 1
 
         return new_properties_found_this_run, driver
 
