@@ -37,12 +37,12 @@ def main():
             subprocess.run(["venv/bin/python", "scraper.py", "--user", "leon"])
 
             time.sleep(60)
-            
+
             logging.info("Running scraper for johann...")
             subprocess.run(["venv/bin/python", "scraper.py", "--user", "johann"])
 
             time.sleep(60)
-            
+
             logging.info("Running scraper for cynthia...")
             subprocess.run(["venv/bin/python", "scraper.py", "--user", "cynthia"])
 
