@@ -1,7 +1,11 @@
+from __future__ import annotations
+
 import argparse
 import logging
 import time
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime
+from typing import Optional
 
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin
@@ -15,29 +19,161 @@ import sib_api_v3_sdk
 from sib_api_v3_sdk.rest import ApiException
 
 
+def _configure_logging():
+    logging.basicConfig(
+        level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
+    )
+
+
+DEFAULT_CONFIG_PATH = "config.json"
+
+
+def load_config_user_list(config_path: Optional[str] = None) -> list:
+    """Load config.json: must be a JSON array of user objects (see config.example.json)."""
+    path = config_path or DEFAULT_CONFIG_PATH
+    if not os.path.exists(path):
+        logging.error("Configuration file '%s' not found.", path)
+        raise SystemExit(1)
+    with open(path, "r", encoding="utf-8") as f:
+        try:
+            data = json.load(f)
+        except json.JSONDecodeError:
+            logging.error("Could not decode JSON from '%s'.", path)
+            raise SystemExit(1) from None
+
+    if not isinstance(data, list):
+        logging.error(
+            "config.json must be a JSON array (list) of user objects, not %s.",
+            type(data).__name__,
+        )
+        raise SystemExit(1)
+
+    if len(data) == 0:
+        logging.error("config.json user list is empty; add at least one user object.")
+        raise SystemExit(1)
+
+    seen_users: dict[str, int] = {}
+    for i, item in enumerate(data):
+        if not isinstance(item, dict):
+            logging.error(
+                "config.json[%d] must be a JSON object, not %s.",
+                i,
+                type(item).__name__,
+            )
+            raise SystemExit(1)
+        uid = item.get("user")
+        if not uid or not isinstance(uid, str):
+            logging.error(
+                'config.json[%d] must include a non-empty string "user" id.',
+                i,
+            )
+            raise SystemExit(1)
+        if uid in seen_users:
+            logging.error(
+                'Duplicate "user" %r in config.json at indices %d and %d.',
+                uid,
+                seen_users[uid],
+                i,
+            )
+            raise SystemExit(1)
+        seen_users[uid] = i
+
+    return data
+
+
+def find_user_config(user_id: str, config_path: Optional[str] = None) -> dict:
+    """Return the config object for --user (must match the \"user\" field)."""
+    for item in load_config_user_list(config_path):
+        if item.get("user") == user_id:
+            return item
+    logging.error(
+        "User %r not found in '%s' (no matching \"user\" field).",
+        user_id,
+        config_path or DEFAULT_CONFIG_PATH,
+    )
+    raise SystemExit(1)
+
+
+def run_schedule_loop():
+    """Wait until SCRAPER_HOUR:SCRAPER_MINUTE daily, then run Scraper for each config user in parallel."""
+    from dotenv import load_dotenv
+
+    load_dotenv()
+
+    try:
+        hour = int(os.environ["SCRAPER_HOUR"])
+        minute = int(os.environ["SCRAPER_MINUTE"])
+    except KeyError:
+        logging.error(
+            "Schedule mode requires SCRAPER_HOUR and SCRAPER_MINUTE in the environment "
+            "(e.g. in a .env file)."
+        )
+        raise SystemExit(1) from None
+    except ValueError:
+        logging.error("SCRAPER_HOUR and SCRAPER_MINUTE must be integers.")
+        raise SystemExit(1) from None
+
+    logging.info(
+        "Schedule mode: will run daily at %02d:%02d for each user in config.json (in parallel).",
+        hour,
+        minute,
+    )
+
+    last_run_date = None
+    while True:
+        now = datetime.now()
+        if now.hour == hour and now.minute == minute:
+            if last_run_date == now.date():
+                time.sleep(1)
+                continue
+            last_run_date = now.date()
+
+            try:
+                user_configs = load_config_user_list()
+            except SystemExit:
+                logging.error(
+                    "Invalid config.json; skipping today's scheduled batch.",
+                )
+                time.sleep(60)
+                continue
+
+            logging.info(
+                "Running scheduled batch for: %s",
+                ", ".join(c["user"] for c in user_configs),
+            )
+
+            with ThreadPoolExecutor(max_workers=5) as executor:
+                futures = [
+                    executor.submit(_run_scraper_for_user, uc) for uc in user_configs
+                ]
+                for future in futures:
+                    future.result()  # Wait for all scrapers to complete
+
+        time.sleep(1)
+
+
+def _run_scraper_for_user(user_config: dict):
+    """Helper function to run the scraper for a single user and handle exceptions."""
+    uid = user_config["user"]
+    logging.info("Running scraper for %s...", uid)
+    try:
+        Scraper(user_config).main()
+    except SystemExit as e:
+        if e.code not in (0, None):
+            logging.error(
+                "Scraper exited with code %s for user %s",
+                e.code,
+                uid,
+            )
+    except Exception:
+        logging.exception("Scraper failed for user %s", uid)
+
+
 class Scraper:
-    def __init__(self):
-        logging.basicConfig(
-            level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
-        )
-        self.config_file = "config.json"
-
-        # --- User-specific Setup ---
-        parser = argparse.ArgumentParser(description="Scrape real estate listings.")
-        parser.add_argument(
-            "--user",
-            required=True,
-            help="The user running the script (e.g., 'magni', 'gabriela').",
-        )
-        self.args = parser.parse_args()
-
-        config = self.load_config()
-
-        if self.args.user not in config:
-            logging.error(f"User '{self.args.user}' not found in '{self.config_file}'.")
-            exit()
-
-        self.user_config = config[self.args.user]
+    def __init__(self, user_config: dict):
+        """user_config: one element from the config.json array (must include \"user\" and settings)."""
+        self.user_config = user_config
+        self.args = argparse.Namespace(user=user_config["user"])
 
         self.API_KEY = self.user_config.get("BREVO_API_KEY")
         self.FROM_EMAIL = self.user_config.get("FROM_EMAIL")
@@ -47,18 +183,6 @@ class Scraper:
         self.MIN_BEDROOMS = self.user_config.get("MIN_BEDROOMS")
         self.MAX_BEDROOMS = self.user_config.get("MAX_BEDROOMS")
         self.ZIP_CODES = self.user_config.get("ZIP_CODES")
-
-    def load_config(self):
-        """Loads the entire configuration from config.json."""
-        if not os.path.exists(self.config_file):
-            logging.error(f"Configuration file '{self.config_file}' not found.")
-            exit()
-        with open(self.config_file, "r", encoding="utf-8") as f:
-            try:
-                return json.load(f)
-            except json.JSONDecodeError:
-                logging.error(f"Could not decode JSON from '{self.config_file}'.")
-                exit()
 
     def fetch_image_as_data_uri(self, image_url, referer=None, max_size_kb=500):
         """Fetch image from URL and return a data URI for embedding, or None on failure."""
@@ -124,9 +248,7 @@ class Scraper:
             )
             return False
 
-    # Visir shows this when there are no hits (empty search).
     NO_SEARCH_RESULTS_TEXT = "Leitin skilaði engum niðurstöðum."
-    # SPA loads listings via GET with the same params as the hash (#/?zip=…&page=N).
     LISTING_AJAX_URL = "https://fasteignir.visir.is/ajaxsearch/getresults"
 
     def _search_listings_query_params(self, page: int) -> dict:
@@ -534,7 +656,33 @@ class Scraper:
             logging.info("\nNo properties found. No email notification sent.")
 
 
-if __name__ == "__main__":
+def _parse_args():
+    parser = argparse.ArgumentParser(description="Scrape real estate listings.")
+    parser.add_argument(
+        "--user",
+        help='Match the "user" field of one object in the config.json array.',
+    )
+    parser.add_argument(
+        "--schedule",
+        action="store_true",
+        help=(
+            "Run in a loop: each day at SCRAPER_HOUR:SCRAPER_MINUTE (from .env), "
+            "run once per user in config.json list order."
+        ),
+    )
+    return parser.parse_args()
 
-    scraper = Scraper()
-    scraper.main()
+
+if __name__ == "__main__":
+    _configure_logging()
+    args = _parse_args()
+    if args.schedule:
+        if args.user:
+            logging.error("Do not pass --user with --schedule.")
+            raise SystemExit(2)
+        run_schedule_loop()
+    else:
+        if not args.user:
+            logging.error("Either --user NAME or --schedule is required.")
+            raise SystemExit(2)
+        Scraper(find_user_config(args.user)).main()
