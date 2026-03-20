@@ -191,9 +191,7 @@ class Scraper:
 
             size = size_tag.get_text(strip=True) if size_tag else "N/A"
             total_rooms = rooms_tag.get_text(strip=True) if rooms_tag else "N/A"
-            bedrooms_text = (
-                bedrooms_tag.get_text(strip=True) if bedrooms_tag else "N/A"
-            )
+            bedrooms_text = bedrooms_tag.get_text(strip=True) if bedrooms_tag else "N/A"
             bedrooms = "1" if bedrooms_text == "N/A" else bedrooms_text
 
             price_per_m2 = None
