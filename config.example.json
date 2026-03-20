@@ -1,0 +1,26 @@
+[
+  {
+    "user": "magni",
+    "BREVO_API_KEY": "your-brevo-api-key",
+    "FROM_EMAIL": "you@example.com",
+    "TO_EMAIL": "you@example.com",
+    "MIN_PRICE": "60000000",
+    "MAX_PRICE": "81000000",
+    "MIN_BEDROOMS": "2",
+    "MAX_BEDROOMS": "10",
+    "ZIP_CODES": "104,105,107",
+    "ignored_strings": []
+  },
+  {
+    "user": "gabriela",
+    "BREVO_API_KEY": "your-brevo-api-key",
+    "FROM_EMAIL": "you@example.com",
+    "TO_EMAIL": "you@example.com",
+    "MIN_PRICE": "60000000",
+    "MAX_PRICE": "81000000",
+    "MIN_BEDROOMS": "2",
+    "MAX_BEDROOMS": "10",
+    "ZIP_CODES": "104,105,107",
+    "ignored_strings": []
+  }
+]
