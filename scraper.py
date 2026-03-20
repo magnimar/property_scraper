@@ -5,11 +5,6 @@ from concurrent.futures import ThreadPoolExecutor
 
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin
-from selenium import webdriver
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.chrome.service import Service
 
 import base64
 import os
@@ -129,6 +124,103 @@ class Scraper:
             )
             return False
 
+    # Visir shows this when there are no hits (empty search).
+    NO_SEARCH_RESULTS_TEXT = "Leitin skilaði engum niðurstöðum."
+    # SPA loads listings via GET with the same params as the hash (#/?zip=…&page=N).
+    LISTING_AJAX_URL = "https://fasteignir.visir.is/ajaxsearch/getresults"
+
+    def _search_listings_query_params(self, page: int) -> dict:
+        """Query string for /ajaxsearch/getresults (same keys as the in-browser hash route)."""
+        return {
+            "stype": "sale",
+            "zip": self.ZIP_CODES,
+            "price": f"{self.MIN_PRICE},{self.MAX_PRICE}",
+            "bedroom": f"{self.MIN_BEDROOMS},{self.MAX_BEDROOMS}",
+            "category": "2,1,4,7,17",
+            "page": page,
+        }
+
+    def _parse_listing_cards_from_html(
+        self, html: str, base_url: str, skip_address_substrings, processed_links: set
+    ) -> tuple[list, int]:
+        """Parse estate cards from HTML. Returns (new prop dicts, raw card count on page)."""
+        soup = BeautifulSoup(html, "html.parser")
+        property_cards = soup.find_all(
+            "div", class_=lambda c: c and "estate__item" in c
+        )
+        raw_count = len(property_cards)
+        out = []
+        for card in property_cards:
+            link_tag = card.find("a", class_="js-property-link", href=True)
+            address_tag = card.find("div", class_="estate__item-title")
+            price_tag = card.find("div", class_="estate__price")
+            size_tag = card.find("div", class_="estate__parameters--1")
+            rooms_tag = card.find("div", class_="estate__parameters--2")
+            bedrooms_tag = card.find("div", class_="estate__parameters--4")
+
+            image_tag = card.find("img")
+            image_url = None
+            if image_tag and image_tag.get("src"):
+                image_url = urljoin(base_url, image_tag["src"])
+            elif image_tag and image_tag.get("data-src"):
+                image_url = urljoin(base_url, image_tag["data-src"])
+
+            link = urljoin(base_url, link_tag["href"]) if link_tag else "N/A"
+            address = (
+                address_tag.get_text(strip=True, separator=" ")
+                if address_tag
+                else "N/A"
+            )
+
+            if any(
+                substring.lower() in address.lower()
+                for substring in skip_address_substrings
+            ):
+                continue
+
+            price_str = price_tag.get_text(strip=True) if price_tag else "N/A"
+            if price_str == "Tilboð":
+                continue
+
+            try:
+                price_num = int(price_str.replace(".", "").replace(" kr", ""))
+                if not int(self.MIN_PRICE) <= price_num <= int(self.MAX_PRICE):
+                    continue
+            except (ValueError, TypeError):
+                continue
+
+            size = size_tag.get_text(strip=True) if size_tag else "N/A"
+            total_rooms = rooms_tag.get_text(strip=True) if rooms_tag else "N/A"
+            bedrooms_text = bedrooms_tag.get_text(strip=True) if bedrooms_tag else "N/A"
+            bedrooms = "1" if bedrooms_text == "N/A" else bedrooms_text
+
+            price_per_m2 = None
+            if size != "N/A" and price_num:
+                try:
+                    size_num = float(size.replace("m²", "").replace(",", "."))
+                    if size_num > 0:
+                        price_per_m2 = int(price_num / size_num)
+                except (ValueError, TypeError):
+                    pass
+
+            if link != "N/A" and address != "N/A":
+                if link in processed_links:
+                    continue
+                processed_links.add(link)
+                out.append(
+                    {
+                        "address": address,
+                        "price": price_str,
+                        "size_m2": size,
+                        "price_per_m2": price_per_m2,
+                        "total_rooms": total_rooms,
+                        "bedrooms": bedrooms,
+                        "link": link,
+                        "image_url": image_url,
+                    }
+                )
+        return out, raw_count
+
     def scrape_visir_properties(self):
         base_url = "https://fasteignir.visir.is"
 
@@ -144,151 +236,67 @@ class Scraper:
             logging.error("Missing search parameters in config file.")
             return [], None
 
-        zip_codes_str = self.ZIP_CODES
-        start_url = (
-            f"https://fasteignir.visir.is/search/results/?stype=sale#/"
-            f"?zip={zip_codes_str}&price={self.MIN_PRICE},{self.MAX_PRICE}&bedroom={self.MIN_BEDROOMS},{self.MAX_BEDROOMS}&category=2,1,4,7,17&stype=sale"
-        )
-
         skip_address_substrings = self.user_config.get("ignored_strings", [])
 
         new_properties_found_this_run = []
         processed_links = set()
 
-        driver = None
+        headers = self._page_request_headers()
+        headers["Referer"] = "https://fasteignir.visir.is/search/results/?stype=sale"
 
-        logging.info("Setting up Chrome driver...")
-        options = webdriver.ChromeOptions()
-        options.add_argument("--headless")
-        options.add_argument("--no-sandbox")
-        options.add_argument("--disable-dev-shm-usage")
-        options.add_argument("--disable-gpu")
+        page_num = 1
+        max_pages = 500
 
-        # --- Add these to your options setup ---
-        chrome_prefs = {
-            "profile.managed_default_content_settings.images": 2,
-            "profile.default_content_settings.stylesheets": 2,
-        }
-        options.add_experimental_option("prefs", chrome_prefs)
-        options.page_load_strategy = (
-            "eager"  # Don't wait for all scripts to finish, change this
+        logging.info(
+            "Fetching search pages via requests → %s (page=1, 2, … until no hits).",
+            self.LISTING_AJAX_URL,
         )
 
-        if os.path.exists("/usr/bin/chromedriver"):
-            service = Service(executable_path="/usr/bin/chromedriver")
-            options.binary_location = "/usr/bin/chromium"
-        else:
-            service = Service()
-
-        while True:
+        while page_num <= max_pages:
             try:
-                driver = webdriver.Chrome(service=service, options=options)
-
-                logging.info("Successfully started chrome")
-
+                response = requests.get(
+                    self.LISTING_AJAX_URL,
+                    params=self._search_listings_query_params(page_num),
+                    headers=headers,
+                    timeout=30,
+                )
+                response.raise_for_status()
+                text = response.text
+            except Exception as e:
+                logging.error("Error fetching search page %s: %s", page_num, e)
                 break
 
-            except Exception:
-                logging.info("Failed to start chrome, waiting and trying again")
-                time.sleep(5)
+            if self.NO_SEARCH_RESULTS_TEXT in text:
+                logging.info(
+                    "Page %s: '%s' — stopping pagination.",
+                    page_num,
+                    self.NO_SEARCH_RESULTS_TEXT,
+                )
+                break
 
-        logging.info(f"Opening browser and navigating to {start_url}...")
-        driver.get(start_url)
-        time.sleep(5)
-
-        while True:
-            soup = BeautifulSoup(driver.page_source, "html.parser")
-            property_cards = soup.find_all(
-                "div", class_=lambda c: c and "estate__item" in c
+            added, raw_cards = self._parse_listing_cards_from_html(
+                text, base_url, skip_address_substrings, processed_links
             )
-            logging.info(f"Found {len(property_cards)} properties on the current page.")
+            logging.info(
+                "Page %s: %s card(s) on page, %s new after filters (running total %s).",
+                page_num,
+                raw_cards,
+                len(added),
+                len(processed_links),
+            )
 
-            for card in property_cards:
-                link_tag = card.find("a", class_="js-property-link", href=True)
-                address_tag = card.find("div", class_="estate__item-title")
-                price_tag = card.find("div", class_="estate__price")
-                size_tag = card.find("div", class_="estate__parameters--1")
-                rooms_tag = card.find("div", class_="estate__parameters--2")
-                bedrooms_tag = card.find("div", class_="estate__parameters--4")
-
-                image_tag = card.find("img")
-                image_url = None
-                if image_tag and image_tag.get("src"):
-                    image_url = urljoin(base_url, image_tag["src"])
-                elif image_tag and image_tag.get("data-src"):
-                    image_url = urljoin(base_url, image_tag["data-src"])
-
-                link = urljoin(base_url, link_tag["href"]) if link_tag else "N/A"
-                address = (
-                    address_tag.get_text(strip=True, separator=" ")
-                    if address_tag
-                    else "N/A"
+            if raw_cards == 0:
+                logging.warning(
+                    "Page %s: no listing cards in HTML and no empty-search message — stopping.",
+                    page_num,
                 )
-
-                if any(
-                    substring.lower() in address.lower()
-                    for substring in skip_address_substrings
-                ):
-                    continue
-
-                price_str = price_tag.get_text(strip=True) if price_tag else "N/A"
-                if price_str == "Tilboð":
-                    continue
-
-                try:
-                    price_num = int(price_str.replace(".", "").replace(" kr", ""))
-                    if not int(self.MIN_PRICE) <= price_num <= int(self.MAX_PRICE):
-                        continue
-                except (ValueError, TypeError):
-                    continue
-
-                size = size_tag.get_text(strip=True) if size_tag else "N/A"
-                total_rooms = rooms_tag.get_text(strip=True) if rooms_tag else "N/A"
-                bedrooms_text = (
-                    bedrooms_tag.get_text(strip=True) if bedrooms_tag else "N/A"
-                )
-                bedrooms = "1" if bedrooms_text == "N/A" else bedrooms_text
-
-                price_per_m2 = None
-                if size != "N/A" and price_num:
-                    try:
-                        size_num = float(size.replace("m²", "").replace(",", "."))
-                        if size_num > 0:
-                            price_per_m2 = int(price_num / size_num)
-                    except (ValueError, TypeError):
-                        pass
-
-                if link != "N/A" and address != "N/A":
-                    if link in processed_links:
-                        continue
-                    processed_links.add(link)
-
-                    prop_data = {
-                        "address": address,
-                        "price": price_str,
-                        "size_m2": size,
-                        "price_per_m2": price_per_m2,
-                        "total_rooms": total_rooms,
-                        "bedrooms": bedrooms,
-                        "link": link,
-                        "image_url": image_url,
-                    }
-                    new_properties_found_this_run.append(prop_data)
-            try:
-                next_button = WebDriverWait(driver, 5).until(
-                    EC.presence_of_element_located(
-                        (
-                            By.CSS_SELECTOR,
-                            "a.b-navigation-direction-next:not(.disabled)",
-                        )
-                    )
-                )
-                driver.execute_script("arguments[0].click();", next_button)
-                time.sleep(5)
-            except Exception:
                 break
 
-        return new_properties_found_this_run, driver
+            new_properties_found_this_run.extend(added)
+            page_num += 1
+            time.sleep(0.5)
+
+        return new_properties_found_this_run, None
 
     def get_numeric_price(self, price_str):
         try:
@@ -403,11 +411,8 @@ class Scraper:
 
     def main(self):
         logging.info(f"Start time: {time.time()}")
-        new_properties, driver = self.scrape_visir_properties()
+        new_properties, _driver = self.scrape_visir_properties()
         logging.info(f"After having properties, time: {time.time()}")
-
-        if driver:
-            driver.quit()
 
         def needs_detail_check(prop):
             return (
@@ -533,7 +538,3 @@ if __name__ == "__main__":
 
     scraper = Scraper()
     scraper.main()
-
-# 54 seconds before, using selenium
-# 21 seconds now, using requests
-# 16 seconds now, using requests and threading
