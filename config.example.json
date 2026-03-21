@@ -9,6 +9,16 @@
     "MIN_BEDROOMS": "2",
     "MAX_BEDROOMS": "10",
     "ZIP_CODES": "104,105,107",
+    "EINBYLISHUS": "yes",
+    "FJOLBYLISHUS": "yes",
+    "ATVINNUHUSNAEDI": "no",
+    "RADHUS_PARHUS": "yes",
+    "SUMARHUS": "no",
+    "PARHUS": "yes",
+    "JORD_LOD": "no",
+    "HAED": "yes",
+    "HESTHUS": "no",
+    "OFLOKKAD": "no",
     "ignored_strings": []
   },
   {
@@ -21,6 +31,16 @@
     "MIN_BEDROOMS": "2",
     "MAX_BEDROOMS": "10",
     "ZIP_CODES": "104,105,107",
+    "EINBYLISHUS": "yes",
+    "FJOLBYLISHUS": "yes",
+    "ATVINNUHUSNAEDI": "no",
+    "RADHUS_PARHUS": "yes",
+    "SUMARHUS": "no",
+    "PARHUS": "yes",
+    "JORD_LOD": "no",
+    "HAED": "yes",
+    "HESTHUS": "no",
+    "OFLOKKAD": "no",
     "ignored_strings": []
   }
 ]
