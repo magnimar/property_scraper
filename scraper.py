@@ -501,6 +501,13 @@ class Scraper:
                 else:
                     prop["build_year"] = "N/A"
 
+            if prop.get("fasteignamat") is None:
+                fmat_elem = soup.find(string=re.compile("Fasteignamat", re.I))
+                if fmat_elem and fmat_elem.parent and fmat_elem.parent.find_next_sibling():
+                    prop["fasteignamat"] = fmat_elem.parent.find_next_sibling().get_text(strip=True)
+                else:
+                    prop["fasteignamat"] = "N/A"
+
             if not prop.get("image_url") or "staticmap" in (
                 prop.get("image_url") or ""
             ):
@@ -536,6 +543,8 @@ class Scraper:
                 prop["has_garage"] = False
             if prop.get("build_year") is None:
                 prop["build_year"] = "N/A"
+            if prop.get("fasteignamat") is None:
+                prop["fasteignamat"] = "N/A"
 
         return prop
 
@@ -633,11 +642,33 @@ class Scraper:
             html += "<div style='margin-bottom: 30px; padding: 15px; border: 1px solid #ddd;'>"
             html += f"<h3>{prop['address']}</h3>"
             html += f"<p><strong>Verð:</strong> {prop['price']}</p>"
+            if prop.get("fasteignamat") and prop["fasteignamat"] != "N/A":
+                html += f"<p><strong>Fasteignamat:</strong> {prop['fasteignamat']}</p>"
             if prop.get("price_per_m2"):
                 price_per_m2_formatted = f"{prop['price_per_m2']:,}".replace(",", ".")
                 html += f"<p><strong>Fermetraverð:</strong> {price_per_m2_formatted} kr.</p>"
             html += f"<p><strong>Stærð:</strong> {prop['size_m2']}</p>"
             html += f"<p><strong>Svefnherbergi:</strong> {prop['bedrooms']}</p>"
+
+            # Calculate monthly payment for an 80% non-indexed loan over 40 years
+            try:
+                numeric_price = int(prop['price'].replace(".", "").replace(" kr", ""))
+                loan_70 = numeric_price * 0.70
+                loan_10 = numeric_price * 0.10
+                loan_80 = numeric_price * 0.80
+                
+                interest_payment = int((loan_70 * 0.007116666666666666) + (loan_10 * 0.007708333333333334))
+                principal_payment = int(loan_80 * 0.00023890801001251563)
+                
+                monthly_payment = interest_payment + principal_payment
+                
+                monthly_formatted = f"{monthly_payment:,}".replace(",", ".")
+                principal_formatted = f"{principal_payment:,}".replace(",", ".")
+                
+                html += f"<p><strong>Mánaðarleg afborgun (Óverðtryggt, 40 ár, 80% lán):</strong> {monthly_formatted} kr.</p>"
+            except (ValueError, TypeError, KeyError):
+                pass
+
             if prop.get("build_year") and prop["build_year"] != "N/A":
                 html += f"<p><strong>Byggt:</strong> {prop['build_year']}</p>"
             if prop.get("has_balcony") is not None:
@@ -658,11 +689,33 @@ class Scraper:
             logging.info(f"\nProperty #{i+1}")
             logging.info(f"  Address: {prop['address']}")
             logging.info(f"  Price: {prop['price']}")
+            if prop.get("fasteignamat") and prop["fasteignamat"] != "N/A":
+                logging.info(f"  Fasteignamat: {prop['fasteignamat']}")
             logging.info(f"  Size: {prop['size_m2']}")
             if prop.get("price_per_m2"):
                 price_per_m2_formatted = f"{prop['price_per_m2']:,}".replace(",", ".")
                 logging.info(f"  Price per m²: {price_per_m2_formatted} kr.")
             logging.info(f"  Bedrooms: {prop['bedrooms']}")
+
+            try:
+                numeric_price = int(prop['price'].replace(".", "").replace(" kr", ""))
+                loan_70 = numeric_price * 0.70
+                loan_10 = numeric_price * 0.10
+                loan_80 = numeric_price * 0.80
+                
+                interest_payment = int((loan_70 * 0.007116666666666666) + (loan_10 * 0.007708333333333334))
+                principal_payment = int(loan_80 * 0.00023890801001251563)
+                
+                monthly_payment = interest_payment + principal_payment
+                
+                monthly_formatted = f"{monthly_payment:,}".replace(",", ".")
+                principal_formatted = f"{principal_payment:,}".replace(",", ".")
+                
+                logging.info(f"  Monthly Payment (Non-indexed, 40 yrs, 80% loan): {monthly_formatted} kr.")
+                logging.info(f"  Principal Paid Down: {principal_formatted} kr.")
+            except (ValueError, TypeError, KeyError):
+                pass
+
             if prop.get("build_year") and prop["build_year"] != "N/A":
                 logging.info(f"  Built: {prop['build_year']}")
             if prop.get("has_balcony") is not None:
@@ -684,6 +737,7 @@ class Scraper:
                 or prop.get("has_terrace") is None
                 or prop.get("has_garage") is None
                 or prop.get("build_year") is None
+                or prop.get("fasteignamat") is None
                 or not prop.get("image_url")
                 or "staticmap" in (prop.get("image_url") or "")
             )
