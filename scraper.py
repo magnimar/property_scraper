@@ -689,7 +689,6 @@ class Scraper:
                 monthly_payment = interest_payment + principal_payment
 
                 monthly_formatted = f"{monthly_payment:,}".replace(",", ".")
-                principal_formatted = f"{principal_payment:,}".replace(",", ".")
 
                 html += f"<p><strong>Mánaðarleg afborgun (Óverðtryggt, 40 ár, 80% lán):</strong> {monthly_formatted} kr.</p>"
             except (ValueError, TypeError, KeyError):
