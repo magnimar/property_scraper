@@ -864,19 +864,6 @@ class Scraper:
                         prop["image_url"], referer=prop.get("link")
                     )
 
-            # Calculate overall average square meter price across all properties
-            total_m2_price_all = sum(
-                p.get("price_per_m2", 0)
-                for p in new_properties
-                if p.get("price_per_m2")
-            )
-            count_m2_price_all = sum(1 for p in new_properties if p.get("price_per_m2"))
-            overall_avg_m2 = (
-                int(total_m2_price_all / count_m2_price_all)
-                if count_m2_price_all > 0
-                else None
-            )
-
             html_body = "<html><body>"
 
             html_body += "<h2>Meðalfermetraverð eftir hverfi:</h2>"
