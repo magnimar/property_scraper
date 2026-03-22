@@ -207,7 +207,7 @@ class Scraper:
             categories.append("35")
         if str(self.user_config.get("OFLOKKAD", "")).lower() == "yes":
             categories.append("36")
-        
+
         # If no categories specified, fallback to original default
         self.CATEGORIES = ",".join(categories) if categories else "2,1,4,7,17"
 
@@ -495,11 +495,26 @@ class Scraper:
                 prop["has_garage"] = "bílskúr" in page_text
 
             if prop.get("build_year") is None:
-                match = re.search(r"bygg(?:t|ingará[\w]*?)[^\d]{0,20}(\d{4})", page_text)
+                match = re.search(
+                    r"bygg(?:t|ingará[\w]*?)[^\d]{0,20}(\d{4})", page_text
+                )
                 if match:
                     prop["build_year"] = match.group(1)
                 else:
                     prop["build_year"] = "N/A"
+
+            if prop.get("fasteignamat") is None:
+                fmat_elem = soup.find(string=re.compile("Fasteignamat", re.I))
+                if (
+                    fmat_elem
+                    and fmat_elem.parent
+                    and fmat_elem.parent.find_next_sibling()
+                ):
+                    prop["fasteignamat"] = (
+                        fmat_elem.parent.find_next_sibling().get_text(strip=True)
+                    )
+                else:
+                    prop["fasteignamat"] = "N/A"
 
             if not prop.get("image_url") or "staticmap" in (
                 prop.get("image_url") or ""
@@ -536,13 +551,31 @@ class Scraper:
                 prop["has_garage"] = False
             if prop.get("build_year") is None:
                 prop["build_year"] = "N/A"
+            if prop.get("fasteignamat") is None:
+                prop["fasteignamat"] = "N/A"
 
         return prop
 
     @staticmethod
     def _get_location_names(zip_code: str) -> tuple[str, str]:
         """Returns (nominative_name, dative_name) for a given zip code."""
-        reykjavik_zips = {"101", "102", "103", "104", "105", "107", "108", "109", "110", "111", "112", "113", "116", "161", "162"}
+        reykjavik_zips = {
+            "101",
+            "102",
+            "103",
+            "104",
+            "105",
+            "107",
+            "108",
+            "109",
+            "110",
+            "111",
+            "112",
+            "113",
+            "116",
+            "161",
+            "162",
+        }
         kopavogur_zips = {"200", "201", "202", "203", "206"}
         gardabaer_zips = {"210", "212", "225"}
         hafnarfjordur_zips = {"220", "221", "222"}
@@ -624,7 +657,7 @@ class Scraper:
             return "Vestmannaeyjar", "Vestmannaeyjum"
         if zip_code in vestmannaeyjabaer_zips:
             return "Vestmannaeyjabær", "Vestmannaeyjabæ"
-            
+
         return "", ""
 
     def generate_property_html(self, properties, title):
@@ -633,11 +666,34 @@ class Scraper:
             html += "<div style='margin-bottom: 30px; padding: 15px; border: 1px solid #ddd;'>"
             html += f"<h3>{prop['address']}</h3>"
             html += f"<p><strong>Verð:</strong> {prop['price']}</p>"
+            if prop.get("fasteignamat") and prop["fasteignamat"] != "N/A":
+                html += f"<p><strong>Fasteignamat:</strong> {prop['fasteignamat']}</p>"
             if prop.get("price_per_m2"):
                 price_per_m2_formatted = f"{prop['price_per_m2']:,}".replace(",", ".")
                 html += f"<p><strong>Fermetraverð:</strong> {price_per_m2_formatted} kr.</p>"
             html += f"<p><strong>Stærð:</strong> {prop['size_m2']}</p>"
             html += f"<p><strong>Svefnherbergi:</strong> {prop['bedrooms']}</p>"
+
+            # Calculate monthly payment for an 80% non-indexed loan over 40 years
+            try:
+                numeric_price = int(prop["price"].replace(".", "").replace(" kr", ""))
+                loan_70 = numeric_price * 0.70
+                loan_10 = numeric_price * 0.10
+                loan_80 = numeric_price * 0.80
+
+                interest_payment = int(
+                    (loan_70 * 0.007116666666666666) + (loan_10 * 0.007708333333333334)
+                )
+                principal_payment = int(loan_80 * 0.00023890801001251563)
+
+                monthly_payment = interest_payment + principal_payment
+
+                monthly_formatted = f"{monthly_payment:,}".replace(",", ".")
+
+                html += f"<p><strong>Mánaðarleg afborgun (Óverðtryggt, 40 ár, 80% lán):</strong> {monthly_formatted} kr.</p>"
+            except (ValueError, TypeError, KeyError):
+                pass
+
             if prop.get("build_year") and prop["build_year"] != "N/A":
                 html += f"<p><strong>Byggt:</strong> {prop['build_year']}</p>"
             if prop.get("has_balcony") is not None:
@@ -658,11 +714,37 @@ class Scraper:
             logging.info(f"\nProperty #{i+1}")
             logging.info(f"  Address: {prop['address']}")
             logging.info(f"  Price: {prop['price']}")
+            if prop.get("fasteignamat") and prop["fasteignamat"] != "N/A":
+                logging.info(f"  Fasteignamat: {prop['fasteignamat']}")
             logging.info(f"  Size: {prop['size_m2']}")
             if prop.get("price_per_m2"):
                 price_per_m2_formatted = f"{prop['price_per_m2']:,}".replace(",", ".")
                 logging.info(f"  Price per m²: {price_per_m2_formatted} kr.")
             logging.info(f"  Bedrooms: {prop['bedrooms']}")
+
+            try:
+                numeric_price = int(prop["price"].replace(".", "").replace(" kr", ""))
+                loan_70 = numeric_price * 0.70
+                loan_10 = numeric_price * 0.10
+                loan_80 = numeric_price * 0.80
+
+                interest_payment = int(
+                    (loan_70 * 0.007116666666666666) + (loan_10 * 0.007708333333333334)
+                )
+                principal_payment = int(loan_80 * 0.00023890801001251563)
+
+                monthly_payment = interest_payment + principal_payment
+
+                monthly_formatted = f"{monthly_payment:,}".replace(",", ".")
+                principal_formatted = f"{principal_payment:,}".replace(",", ".")
+
+                logging.info(
+                    f"  Monthly Payment (Non-indexed, 40 yrs, 80% loan): {monthly_formatted} kr."
+                )
+                logging.info(f"  Principal Paid Down: {principal_formatted} kr.")
+            except (ValueError, TypeError, KeyError):
+                pass
+
             if prop.get("build_year") and prop["build_year"] != "N/A":
                 logging.info(f"  Built: {prop['build_year']}")
             if prop.get("has_balcony") is not None:
@@ -684,6 +766,7 @@ class Scraper:
                 or prop.get("has_terrace") is None
                 or prop.get("has_garage") is None
                 or prop.get("build_year") is None
+                or prop.get("fasteignamat") is None
                 or not prop.get("image_url")
                 or "staticmap" in (prop.get("image_url") or "")
             )
@@ -705,7 +788,9 @@ class Scraper:
         new_properties = [
             prop
             for prop in new_properties
-            if prop.get("has_balcony") or prop.get("has_terrace") or prop.get("has_garage")
+            if prop.get("has_balcony")
+            or prop.get("has_terrace")
+            or prop.get("has_garage")
         ]
         logging.info(
             f"Found {len(new_properties)} properties with a balcony, terrace or garage."
@@ -713,8 +798,11 @@ class Scraper:
 
         # --- Split properties by zip code ---
         import re
-        allowed_zips = [z.strip() for z in (self.ZIP_CODES or "").split(",") if z.strip()]
-        
+
+        allowed_zips = [
+            z.strip() for z in (self.ZIP_CODES or "").split(",") if z.strip()
+        ]
+
         properties_by_zip = {}
         for prop in new_properties:
             zip_code = "Annað"
@@ -728,7 +816,7 @@ class Scraper:
                     if not prefix.endswith(","):
                         prop["address"] = prefix + ", " + prop["address"][start:]
                     break
-            
+
             properties_by_zip.setdefault(zip_code, []).append(prop)
 
         for zip_code, props in properties_by_zip.items():
@@ -775,26 +863,27 @@ class Scraper:
                         prop["image_url"], referer=prop.get("link")
                     )
 
-            # Calculate overall average square meter price across all properties
-            total_m2_price_all = sum(p.get("price_per_m2", 0) for p in new_properties if p.get("price_per_m2"))
-            count_m2_price_all = sum(1 for p in new_properties if p.get("price_per_m2"))
-            overall_avg_m2 = int(total_m2_price_all / count_m2_price_all) if count_m2_price_all > 0 else None
-
             html_body = "<html><body>"
 
             html_body += "<h2>Meðalfermetraverð eftir hverfi:</h2>"
             html_body += "<ul>"
-            
+
             for zip_code in allowed_zips + ["Annað"]:
                 if zip_code in properties_by_zip:
                     zip_props = properties_by_zip[zip_code]
-                    zip_total_m2_price = sum(p.get("price_per_m2", 0) for p in zip_props if p.get("price_per_m2"))
-                    zip_props_with_m2 = sum(1 for p in zip_props if p.get("price_per_m2"))
-                    
+                    zip_total_m2_price = sum(
+                        p.get("price_per_m2", 0)
+                        for p in zip_props
+                        if p.get("price_per_m2")
+                    )
+                    zip_props_with_m2 = sum(
+                        1 for p in zip_props if p.get("price_per_m2")
+                    )
+
                     if zip_props_with_m2 > 0:
                         zip_avg_m2 = int(zip_total_m2_price / zip_props_with_m2)
                         zip_avg_m2_formatted = f"{zip_avg_m2:,}".replace(",", ".")
-                        
+
                         base_name, _ = self._get_location_names(zip_code)
                         if base_name:
                             zip_label = f"{zip_code} {base_name}"
@@ -802,17 +891,17 @@ class Scraper:
                             zip_label = zip_code
                         else:
                             zip_label = "Óþekkt"
-                            
+
                         html_body += f"<li><strong>{zip_label}:</strong> {zip_avg_m2_formatted} kr.</li>"
             html_body += "</ul>"
-            
+
             html_body += "<h2>Meðalfermetraverð eftir herbergjafjölda:</h2>"
             html_body += "<ul>"
             for bedrooms, avg_price in sorted(avg_price_per_m2.items()):
                 avg_price_formatted = f"{avg_price:,}".replace(",", ".")
                 html_body += f"<li><strong>{bedrooms} svefnherbergi:</strong> {avg_price_formatted} kr.</li>"
             html_body += "</ul>"
-            
+
             html_body += "<h2>Meðalfermetraverð eftir herbergjafjölda og hverfi:</h2>"
             for bedrooms in sorted(avg_price_per_m2.keys()):
                 html_body += f"<h3>{bedrooms} svefnherbergi:</h3>"
@@ -820,15 +909,27 @@ class Scraper:
                 for zip_code in allowed_zips + ["Annað"]:
                     if zip_code in properties_by_zip:
                         zip_props = properties_by_zip[zip_code]
-                        zip_props_bed = [p for p in zip_props if p.get("bedrooms", "N/A") == bedrooms]
-                        
-                        zip_total_m2_price_bed = sum(p.get("price_per_m2", 0) for p in zip_props_bed if p.get("price_per_m2"))
-                        zip_props_with_m2_bed = sum(1 for p in zip_props_bed if p.get("price_per_m2"))
-                        
+                        zip_props_bed = [
+                            p for p in zip_props if p.get("bedrooms", "N/A") == bedrooms
+                        ]
+
+                        zip_total_m2_price_bed = sum(
+                            p.get("price_per_m2", 0)
+                            for p in zip_props_bed
+                            if p.get("price_per_m2")
+                        )
+                        zip_props_with_m2_bed = sum(
+                            1 for p in zip_props_bed if p.get("price_per_m2")
+                        )
+
                         if zip_props_with_m2_bed > 0:
-                            zip_avg_m2_bed = int(zip_total_m2_price_bed / zip_props_with_m2_bed)
-                            zip_avg_m2_formatted_bed = f"{zip_avg_m2_bed:,}".replace(",", ".")
-                            
+                            zip_avg_m2_bed = int(
+                                zip_total_m2_price_bed / zip_props_with_m2_bed
+                            )
+                            zip_avg_m2_formatted_bed = f"{zip_avg_m2_bed:,}".replace(
+                                ",", "."
+                            )
+
                             base_name, _ = self._get_location_names(zip_code)
                             if base_name:
                                 zip_label = f"{zip_code} {base_name}"
@@ -836,7 +937,7 @@ class Scraper:
                                 zip_label = zip_code
                             else:
                                 zip_label = "Óþekkt"
-                                
+
                             html_body += f"<li><strong>{zip_label}:</strong> {zip_avg_m2_formatted_bed} kr.</li>"
                 html_body += "</ul>"
 
@@ -851,13 +952,11 @@ class Scraper:
                         title = f"Fasteignir í {zip_code}"
                     else:
                         title = "Fasteignir (óþekkt póstnúmer)"
-                    
+
                     # Calculate average price per m2 for this specific zip code
                     zip_props = properties_by_zip[zip_code]
-                    
-                    html_body += self.generate_property_html(
-                        zip_props, title
-                    )
+
+                    html_body += self.generate_property_html(zip_props, title)
                     html_body += "<hr>"
 
             html_body += "</body></html>"
